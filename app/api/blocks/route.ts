@@ -70,47 +70,56 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "asset not found" }, { status: 404 });
   }
 
-  const blockId = await db.transaction(async (tx) => {
-    const [block] = await tx
-      .insert(schema.blocks)
-      .values({
-        name,
-        categoryId,
-        type,
-        fitMode: fitMode ?? "cover",
-        startDate: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
-        endDate: endDate ? new Date(endDate).toISOString() : null,
-        status: "active",
-        durationSeconds: type === "static_image" ? durationSeconds ?? (textHeavy ? 18 : 10) : null,
-      })
-      .returning();
+  let blockId: string;
+  try {
+    blockId = await db.transaction(async (tx) => {
+      const [block] = await tx
+        .insert(schema.blocks)
+        .values({
+          name,
+          categoryId,
+          type,
+          fitMode: fitMode ?? "cover",
+          startDate: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
+          endDate: endDate ? new Date(endDate).toISOString() : null,
+          status: "active",
+          durationSeconds: type === "static_image" ? durationSeconds ?? (textHeavy ? 18 : 10) : null,
+        })
+        .returning();
 
-    if (type === "static_image") {
-      await tx.insert(schema.staticImageBlocks).values({
-        blockId: block.id,
-        imageAssetId: assetId,
-        textHeavy: !!textHeavy,
-      });
-    } else if (type === "video") {
-      await tx.insert(schema.videoBlocks).values({
-        blockId: block.id,
-        videoAssetId: assetId,
-        durationSeconds: asset!.durationSeconds ?? 10,
-      });
-    } else if (type === "dynamic_template") {
-      await tx.insert(schema.dynamicBlocks).values({
-        blockId: block.id,
-        templateId: null,
-        dataSourceId,
-        displayMode: displayMode ?? "carousel",
-        maxItems: maxItems ?? 20,
-        perItemDuration: perItemDuration ?? 10,
-        listLabel: listLabel || null,
-      });
-    }
+      if (type === "static_image") {
+        await tx.insert(schema.staticImageBlocks).values({
+          blockId: block.id,
+          imageAssetId: assetId,
+          textHeavy: !!textHeavy,
+        });
+      } else if (type === "video") {
+        await tx.insert(schema.videoBlocks).values({
+          blockId: block.id,
+          videoAssetId: assetId,
+          durationSeconds: asset!.durationSeconds ?? 10,
+        });
+      } else if (type === "dynamic_template") {
+        await tx.insert(schema.dynamicBlocks).values({
+          blockId: block.id,
+          templateId: null,
+          dataSourceId,
+          displayMode: displayMode ?? "carousel",
+          maxItems: maxItems ?? 20,
+          perItemDuration: perItemDuration ?? 10,
+          listLabel: listLabel || null,
+        });
+      }
 
-    return block.id;
-  });
+      return block.id;
+    });
+  } catch (err) {
+    console.error("Failed to create block:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to create block" },
+      { status: 500 }
+    );
+  }
 
   const block = await db.query.blocks.findFirst({
     where: eq(schema.blocks.id, blockId),
