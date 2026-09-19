@@ -13,6 +13,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Link href="/admin/blocks" className="hover:underline">
               Block Library
             </Link>
+            <Link href="/admin/categories" className="hover:underline">
+              Categories
+            </Link>
+            <Link href="/admin/data-sources" className="hover:underline">
+              Data Sources
+            </Link>
           </nav>
           <a href="/player" target="_blank" className="ml-auto text-sm text-indigo-600 hover:underline">
             Open Player ↗

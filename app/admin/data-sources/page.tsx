@@ -1,0 +1,188 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type SyncLog = {
+  id: string;
+  runAt: string;
+  status: "success" | "error";
+  itemsFetched: number;
+  errorMessage: string | null;
+  trigger: string;
+};
+
+type DataSource = {
+  id: string;
+  name: string;
+  type: string;
+  config: string;
+  lastSyncedAt: string | null;
+  syncLogs: SyncLog[];
+};
+
+function parseBaseUrl(config: string): string | null {
+  try {
+    return JSON.parse(config)?.base_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default function DataSourcesPage() {
+  const [sources, setSources] = useState<DataSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = async () => {
+    const res = await fetch("/api/data-sources");
+    setSources(await res.json());
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial client-side data load
+    load();
+  }, []);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!name.trim()) {
+      setError("Give the data source a name.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/data-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          type: "wordpress_events",
+          config: baseUrl.trim() ? { base_url: baseUrl.trim() } : {},
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Couldn't create data source (${res.status})`);
+      }
+      setName("");
+      setBaseUrl("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const syncNow = async (id: string) => {
+    setSyncingId(id);
+    try {
+      await fetch(`/api/data-sources/${id}/sync`, { method: "POST" });
+      await load();
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-semibold">Data Sources</h1>
+        <p className="text-neutral-600 text-sm mt-1">
+          Where synced content comes from (PRD §6). Phase 1 only pulls WordPress Events (via The
+          Events Calendar&apos;s REST API, <code className="text-xs">/wp-json/tribe/events/v1/events</code>)
+          — it logs how many items it fetched each run, but doesn&apos;t yet turn them into blocks on
+          the player (that&apos;s a Phase 2 item, see the README).
+        </p>
+      </div>
+
+      <form onSubmit={submit} className="bg-white border rounded p-4 space-y-3 max-w-lg">
+        <h2 className="font-medium">New WordPress Events Source</h2>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Internal label (e.g. Shop Events Calendar)"
+          className="border rounded px-3 py-2 text-sm w-full"
+        />
+        <label className="block text-sm">
+          WordPress site base URL (optional — blank falls back to the
+          <code className="text-xs mx-1">WORDPRESS_BASE_URL</code> env var)
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://www.wordonthestreetbooks.com"
+            className="border rounded px-3 py-2 text-sm w-full mt-1"
+          />
+        </label>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="bg-indigo-600 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+        >
+          {submitting ? "Adding…" : "Add Data Source"}
+        </button>
+      </form>
+
+      {loading ? (
+        <p className="text-neutral-500 text-sm">Loading…</p>
+      ) : (
+        <div className="divide-y border rounded bg-white">
+          {sources.length === 0 && (
+            <p className="p-4 text-sm text-neutral-500">No data sources yet.</p>
+          )}
+          {sources.map((s) => {
+            const latest = s.syncLogs?.[0];
+            const url = parseBaseUrl(s.config);
+            return (
+              <div key={s.id} className="p-4 space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="font-medium">
+                    {s.name} <span className="text-xs text-neutral-400 font-normal">({s.type})</span>
+                  </div>
+                  <button
+                    onClick={() => syncNow(s.id)}
+                    disabled={syncingId === s.id}
+                    className="text-sm text-indigo-600 hover:underline disabled:opacity-50"
+                  >
+                    {syncingId === s.id ? "Syncing…" : "Sync Now"}
+                  </button>
+                </div>
+                <div className="text-xs text-neutral-500">
+                  Pulling from:{" "}
+                  {url ? (
+                    <a href={url} target="_blank" className="text-indigo-600 hover:underline">
+                      {url}
+                    </a>
+                  ) : (
+                    <span className="italic">
+                      (no base_url set — falls back to the server&apos;s WORDPRESS_BASE_URL env var)
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-neutral-500">
+                  Last synced: {s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString() : "never"}
+                </div>
+                {latest && (
+                  <div className={`text-xs ${latest.status === "error" ? "text-red-600" : "text-neutral-500"}`}>
+                    Last run ({latest.trigger}, {new Date(latest.runAt).toLocaleString()}):{" "}
+                    {latest.status === "success"
+                      ? `${latest.itemsFetched} item(s) fetched`
+                      : `failed — ${latest.errorMessage}`}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
