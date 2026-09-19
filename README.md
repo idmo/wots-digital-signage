@@ -2,7 +2,7 @@
 
 Self-hosted digital signage for Word on the Street Books — Next.js (App Router) + Tailwind CSS + Drizzle ORM, per the [Product & Technical Requirements Document](./docs) (also on Google Drive / the project's Google Doc).
 
-This is the **Phase 1 (MVP)** slice: static image + video blocks, categories, scheduling, a single drag-and-drop sequence, the `/player` route, basic WordPress Events sync, and the plumbing (worker service, Docker Compose) the later phases build on. Dynamic/templated blocks (Community Board, Featured Readers) and full import/export are Phase 2+.
+This is the **Phase 1 (MVP)** slice: static image + video blocks, categories, scheduling, a single drag-and-drop sequence, the `/player` route, basic WordPress Events sync, and the plumbing (worker service, Docker Compose) the later phases build on, plus the Community Bulletin Board dynamic block type (built ahead of the rest of Phase 2). Featured Readers and full import/export are still Phase 2+.
 
 ## Stack
 
@@ -123,7 +123,7 @@ docker-compose.dev.yml   Just Postgres, port-exposed (local dev)
 
 ## What's Not Built Yet (Phase 2+)
 
-- Community Board and Featured Readers Pods content types + the recommended custom `signage/v1` REST endpoint (PRD §6.2–§6.4)
-- Template engine for dynamic/templated blocks and their rendering on `/player` (PRD §3.6)
+- Featured Readers Pods content types + the recommended custom `signage/v1` REST endpoint (PRD §6.3–§6.4)
+- A general-purpose template engine for dynamic/templated blocks (PRD §3.6) — Events and the Community Bulletin Board each currently have their own purpose-built `/player` renderer instead
 - Multiple sequences live-switching, full-system Import/Export (PRD §13)
 - n8n webhook workflow on the WordPress side (the receiving API route exists at `/api/webhooks/n8n`, per §6.8)
