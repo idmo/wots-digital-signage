@@ -107,3 +107,59 @@ export function formatEventWhen(event: WpEvent): { weekday: string; date: string
   const endTime = formatTime(event.end_date_details);
   return { weekday, date, timeRange: `${startTime}–${endTime}` };
 }
+
+// ---------------------------------------------------------------------------
+// Community Bulletin Board — a Pods custom post type (`bulletin_board_item`)
+// exposed at the standard WP REST route (not `/wp-json/pods/v1`, which only
+// manages Pods' own config). Shape confirmed against the live site's
+// /wp-json/wp/v2/bulletin_board_item endpoint.
+// ---------------------------------------------------------------------------
+
+export type WpBulletinBoardItem = {
+  id: number;
+  title: { rendered: string };
+  content: { rendered: string };
+  start_date?: string; // "YYYY-MM-DD"
+  end_date?: string; // "YYYY-MM-DD HH:MM:SS"
+  website?: string;
+  approved?: string | number | boolean;
+  featured_media?: number;
+  _embedded?: {
+    "wp:featuredmedia"?: Array<{ source_url?: string }>;
+  };
+};
+
+export async function fetchBulletinBoardItems(baseUrl: string, perPage = 20): Promise<WpBulletinBoardItem[]> {
+  const url = new URL("/wp-json/wp/v2/bulletin_board_item", baseUrl);
+  url.searchParams.set("per_page", String(perPage));
+  url.searchParams.set("_embed", "1");
+  const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`WordPress bulletin board fetch failed: ${res.status} ${res.statusText}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+/** The `approved` Pods checkbox field comes back as "1"/"0", 1/0, or a bool
+ * depending on how it's serialized — normalize all of those. */
+export function isBulletinBoardItemApproved(item: WpBulletinBoardItem): boolean {
+  return item.approved === true || item.approved === "1" || item.approved === 1;
+}
+
+export function bulletinBoardImageUrl(item: WpBulletinBoardItem): string | null {
+  return item._embedded?.["wp:featuredmedia"]?.[0]?.source_url ?? null;
+}
+
+/** True if `now` falls within the item's [start_date, end_date] window.
+ * Missing/unparseable dates on either side don't exclude the item — only an
+ * explicit, parseable out-of-range date does. */
+export function isBulletinBoardItemEligible(item: WpBulletinBoardItem, now: Date): boolean {
+  if (item.start_date) {
+    const start = new Date(item.start_date.replace(" ", "T"));
+    if (!Number.isNaN(start.getTime()) && now < start) return false;
+  }
+  if (item.end_date) {
+    const end = new Date(item.end_date.replace(" ", "T"));
+    if (!Number.isNaN(end.getTime()) && now > end) return false;
+  }
+  return true;
+}

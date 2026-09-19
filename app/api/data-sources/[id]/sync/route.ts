@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
-import { fetchWordPressEvents } from "@/lib/wordpress";
+import { fetchWordPressEvents, fetchBulletinBoardItems } from "@/lib/wordpress";
 
 /**
  * Manual/scheduled sync trigger (PRD §11.3). The worker service calls
@@ -28,6 +28,12 @@ export async function POST(_request: NextRequest, ctx: RouteContext<"/api/data-s
       const events = await fetchWordPressEvents(baseUrl);
       itemsFetched = events.length;
       // TODO (Phase 2): upsert Event dynamic blocks/template data from `events`.
+    } else if (source.type === "wordpress_bulletin_board") {
+      const config = JSON.parse(source.config || "{}");
+      const baseUrl = config.base_url || process.env.WORDPRESS_BASE_URL;
+      if (!baseUrl) throw new Error("data source config missing base_url");
+      const items = await fetchBulletinBoardItems(baseUrl);
+      itemsFetched = items.length;
     } else {
       throw new Error(`sync not yet implemented for type ${source.type}`);
     }

@@ -36,6 +36,9 @@ export default function DataSourcesPage() {
 
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [sourceType, setSourceType] = useState<"wordpress_events" | "wordpress_bulletin_board">(
+    "wordpress_events"
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
@@ -63,7 +66,7 @@ export default function DataSourcesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          type: "wordpress_events",
+          type: sourceType,
           config: baseUrl.trim() ? { base_url: baseUrl.trim() } : {},
         }),
       });
@@ -96,15 +99,35 @@ export default function DataSourcesPage() {
       <div>
         <h1 className="text-2xl font-semibold">Data Sources</h1>
         <p className="text-neutral-600 text-sm mt-1">
-          Where synced content comes from (PRD §6). Phase 1 only pulls WordPress Events (via The
-          Events Calendar&apos;s REST API, <code className="text-xs">/wp-json/tribe/events/v1/events</code>)
-          — it logs how many items it fetched each run, but doesn&apos;t yet turn them into blocks on
-          the player (that&apos;s a Phase 2 item, see the README).
+          Where synced content comes from (PRD §6): WordPress Events (via The Events Calendar&apos;s
+          REST API, <code className="text-xs">/wp-json/tribe/events/v1/events</code>) or the
+          Community Bulletin Board (a Pods custom post type,{" "}
+          <code className="text-xs">/wp-json/wp/v2/bulletin_board_item</code>).
         </p>
       </div>
 
       <form onSubmit={submit} className="bg-white border rounded p-4 space-y-3 max-w-lg">
-        <h2 className="font-medium">New WordPress Events Source</h2>
+        <h2 className="font-medium">New WordPress Data Source</h2>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setSourceType("wordpress_events")}
+            className={`flex-1 border rounded px-3 py-2 text-sm ${
+              sourceType === "wordpress_events" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white"
+            }`}
+          >
+            WordPress Events
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceType("wordpress_bulletin_board")}
+            className={`flex-1 border rounded px-3 py-2 text-sm ${
+              sourceType === "wordpress_bulletin_board" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white"
+            }`}
+          >
+            Community Bulletin Board
+          </button>
+        </div>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}

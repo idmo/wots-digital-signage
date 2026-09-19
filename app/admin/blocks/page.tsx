@@ -25,13 +25,29 @@ type Block = {
   dynamic?: DynamicInfo;
 };
 
+type BlockKind = "upload" | "wordpress_events" | "wordpress_bulletin_board";
+
+const DYNAMIC_KIND_LABEL: Record<Exclude<BlockKind, "upload">, string> = {
+  wordpress_events: "WordPress Events",
+  wordpress_bulletin_board: "Community Bulletin Board",
+};
+
+function dynamicBlockSummaryLabel(dataSourceType: string | undefined, displayMode: string | undefined) {
+  const noun = dataSourceType === "wordpress_bulletin_board" ? "Bulletin Board" : "Events";
+  return displayMode === "list" ? `${noun} List` : `${noun} Carousel`;
+}
+
+function dynamicBlockIcon(dataSourceType: string | undefined) {
+  return dataSourceType === "wordpress_bulletin_board" ? "📌" : "🗓️";
+}
+
 export default function BlockLibraryPage() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [blockKind, setBlockKind] = useState<"upload" | "wordpress_events">("upload");
+  const [blockKind, setBlockKind] = useState<BlockKind>("upload");
 
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -41,13 +57,15 @@ export default function BlockLibraryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const [eventsDataSourceId, setEventsDataSourceId] = useState("");
-  const [eventsDisplayMode, setEventsDisplayMode] = useState<"carousel" | "list">("carousel");
-  const [eventsListLabel, setEventsListLabel] = useState("");
-  const [eventsMaxItems, setEventsMaxItems] = useState("10");
-  const [eventsPerItemDuration, setEventsPerItemDuration] = useState("10");
+  const [dynDataSourceId, setDynDataSourceId] = useState("");
+  const [dynDisplayMode, setDynDisplayMode] = useState<"carousel" | "list">("carousel");
+  const [dynListLabel, setDynListLabel] = useState("");
+  const [dynMaxItems, setDynMaxItems] = useState("10");
+  const [dynPerItemDuration, setDynPerItemDuration] = useState("10");
 
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
+
+  const dataSourcesForKind = (kind: BlockKind) => dataSources.filter((s) => s.type === kind);
 
   const load = async () => {
     const [blocksRes, catsRes, sourcesRes] = await Promise.all([
@@ -59,10 +77,8 @@ export default function BlockLibraryPage() {
     const sources: DataSource[] = await sourcesRes.json();
     setBlocks(await blocksRes.json());
     setCategories(cats);
-    const eventSources = sources.filter((s) => s.type === "wordpress_events");
-    setDataSources(eventSources);
+    setDataSources(sources);
     if (!categoryId && cats[0]) setCategoryId(cats[0].id);
-    if (!eventsDataSourceId && eventSources[0]) setEventsDataSourceId(eventSources[0].id);
     setLoading(false);
   };
 
@@ -71,6 +87,17 @@ export default function BlockLibraryPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the selected data source valid whenever the block kind (or the
+  // available sources) changes.
+  useEffect(() => {
+    if (blockKind === "upload") return;
+    const available = dataSourcesForKind(blockKind);
+    if (!available.some((s) => s.id === dynDataSourceId)) {
+      setDynDataSourceId(available[0]?.id ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockKind, dataSources]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,12 +156,15 @@ export default function BlockLibraryPage() {
       return;
     }
 
-    // WordPress Events
+    // A dynamic block (WordPress Events or Community Bulletin Board) — the
+    // block itself only needs the data source + display settings; which
+    // renderer it gets on /player is decided by the data source's type.
+    const kindLabel = DYNAMIC_KIND_LABEL[blockKind];
     const missing: string[] = [];
     if (!name.trim()) missing.push("an internal label");
     if (!categoryId) missing.push("a category");
-    if (!eventsDataSourceId) missing.push("a WordPress events data source");
-    if (eventsDisplayMode === "list" && !eventsListLabel.trim()) missing.push("a label for the list");
+    if (!dynDataSourceId) missing.push(`a ${kindLabel} data source`);
+    if (dynDisplayMode === "list" && !dynListLabel.trim()) missing.push("a label for the list");
     if (missing.length) {
       setError(`Add ${missing.join(", ")} before submitting.`);
       return;
@@ -149,11 +179,11 @@ export default function BlockLibraryPage() {
           name,
           categoryId,
           type: "dynamic_template",
-          dataSourceId: eventsDataSourceId,
-          displayMode: eventsDisplayMode,
-          listLabel: eventsDisplayMode === "list" ? eventsListLabel : null,
-          maxItems: Number(eventsMaxItems) || 10,
-          perItemDuration: Number(eventsPerItemDuration) || 10,
+          dataSourceId: dynDataSourceId,
+          displayMode: dynDisplayMode,
+          listLabel: dynDisplayMode === "list" ? dynListLabel : null,
+          maxItems: Number(dynMaxItems) || 10,
+          perItemDuration: Number(dynPerItemDuration) || 10,
           endDate: endDate || null,
         }),
       });
@@ -163,7 +193,7 @@ export default function BlockLibraryPage() {
       }
       setName("");
       setEndDate("");
-      setEventsListLabel("");
+      setDynListLabel("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -184,7 +214,7 @@ export default function BlockLibraryPage() {
       <form onSubmit={submit} className="bg-white border rounded p-4 space-y-3 max-w-lg">
         <h2 className="font-medium">New Block</h2>
 
-        <div className="flex gap-2 text-sm">
+        <div className="flex flex-wrap gap-2 text-sm">
           <button
             type="button"
             onClick={() => setBlockKind("upload")}
@@ -202,6 +232,15 @@ export default function BlockLibraryPage() {
             }`}
           >
             WordPress Events
+          </button>
+          <button
+            type="button"
+            onClick={() => setBlockKind("wordpress_bulletin_board")}
+            className={`px-3 py-1.5 rounded border ${
+              blockKind === "wordpress_bulletin_board" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+            }`}
+          >
+            Community Bulletin Board
           </button>
         </div>
 
@@ -233,9 +272,9 @@ export default function BlockLibraryPage() {
           </>
         ) : (
           <>
-            {dataSources.length === 0 ? (
+            {dataSourcesForKind(blockKind).length === 0 ? (
               <p className="text-sm text-neutral-500">
-                No WordPress events data source yet — add one on the{" "}
+                No {DYNAMIC_KIND_LABEL[blockKind]} data source yet — add one on the{" "}
                 <a href="/admin/data-sources" className="text-indigo-600 hover:underline">
                   Data Sources
                 </a>{" "}
@@ -243,11 +282,11 @@ export default function BlockLibraryPage() {
               </p>
             ) : (
               <select
-                value={eventsDataSourceId}
-                onChange={(e) => setEventsDataSourceId(e.target.value)}
+                value={dynDataSourceId}
+                onChange={(e) => setDynDataSourceId(e.target.value)}
                 className="border rounded px-3 py-2 text-sm w-full"
               >
-                {dataSources.map((s) => (
+                {dataSourcesForKind(blockKind).map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -258,30 +297,30 @@ export default function BlockLibraryPage() {
             <div className="flex gap-2 text-sm">
               <button
                 type="button"
-                onClick={() => setEventsDisplayMode("carousel")}
+                onClick={() => setDynDisplayMode("carousel")}
                 className={`px-3 py-1.5 rounded border ${
-                  eventsDisplayMode === "carousel" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                  dynDisplayMode === "carousel" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
                 }`}
               >
                 Carousel
               </button>
               <button
                 type="button"
-                onClick={() => setEventsDisplayMode("list")}
+                onClick={() => setDynDisplayMode("list")}
                 className={`px-3 py-1.5 rounded border ${
-                  eventsDisplayMode === "list" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                  dynDisplayMode === "list" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
                 }`}
               >
                 List
               </button>
             </div>
 
-            {eventsDisplayMode === "list" && (
+            {dynDisplayMode === "list" && (
               <label className="block text-sm">
                 List label
                 <input
-                  value={eventsListLabel}
-                  onChange={(e) => setEventsListLabel(e.target.value)}
+                  value={dynListLabel}
+                  onChange={(e) => setDynListLabel(e.target.value)}
                   placeholder="e.g. Upcoming Events, or Coming this October"
                   className="border rounded px-3 py-2 text-sm w-full mt-1"
                 />
@@ -289,23 +328,23 @@ export default function BlockLibraryPage() {
             )}
 
             <label className="block text-sm">
-              Number of events to display
+              Number of {blockKind === "wordpress_bulletin_board" ? "postings" : "events"} to display
               <input
                 type="number"
                 min={1}
                 max={50}
-                value={eventsMaxItems}
-                onChange={(e) => setEventsMaxItems(e.target.value)}
+                value={dynMaxItems}
+                onChange={(e) => setDynMaxItems(e.target.value)}
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               />
             </label>
             <label className="block text-sm">
-              {eventsDisplayMode === "list" ? "Seconds to display the list" : "Seconds per event in the carousel"}
+              {dynDisplayMode === "list" ? "Seconds to display the list" : "Seconds per item in the carousel"}
               <input
                 type="number"
                 min={1}
-                value={eventsPerItemDuration}
-                onChange={(e) => setEventsPerItemDuration(e.target.value)}
+                value={dynPerItemDuration}
+                onChange={(e) => setDynPerItemDuration(e.target.value)}
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               />
             </label>
@@ -347,9 +386,9 @@ export default function BlockLibraryPage() {
                 )}
                 {b.type === "dynamic_template" && b.dynamic && (
                   <div className="text-center px-2">
-                    <div className="text-2xl">🗓️</div>
+                    <div className="text-2xl">{dynamicBlockIcon(b.dynamic.dataSource?.type)}</div>
                     <div className="text-xs text-neutral-500 mt-1">
-                      {b.dynamic.displayMode === "list" ? "Events List" : "Events Carousel"}
+                      {dynamicBlockSummaryLabel(b.dynamic.dataSource?.type, b.dynamic.displayMode)}
                     </div>
                   </div>
                 )}
@@ -374,10 +413,10 @@ export default function BlockLibraryPage() {
                     ? `${b.video?.durationSeconds ?? "?"}s (full length)`
                     : b.type === "dynamic_template"
                     ? b.dynamic?.displayMode === "list"
-                      ? `"${b.dynamic?.listLabel ?? ""}" · ${b.dynamic?.maxItems ?? "?"} events · ${
+                      ? `"${b.dynamic?.listLabel ?? ""}" · ${b.dynamic?.maxItems ?? "?"} items · ${
                           b.dynamic?.perItemDuration ?? "?"
                         }s`
-                      : `${b.dynamic?.maxItems ?? "?"} events · ${b.dynamic?.perItemDuration ?? "?"}s each`
+                      : `${b.dynamic?.maxItems ?? "?"} items · ${b.dynamic?.perItemDuration ?? "?"}s each`
                     : `${b.durationSeconds ?? b.category.defaultDurationSeconds}s`}
                 </div>
                 {b.note && (
@@ -394,7 +433,9 @@ export default function BlockLibraryPage() {
         <EditBlockModal
           block={editingBlock}
           categories={categories}
-          dataSources={dataSources}
+          dataSources={dataSourcesForKind(
+            (editingBlock.dynamic?.dataSource?.type as BlockKind | undefined) ?? "wordpress_events"
+          )}
           onCategoryCreated={(c) => setCategories((prev) => [...prev, c])}
           onClose={() => setEditingBlock(null)}
           onSaved={async () => {
@@ -434,19 +475,19 @@ function EditBlockModal({
   const [durationSeconds, setDurationSeconds] = useState(
     block.durationSeconds != null ? String(block.durationSeconds) : ""
   );
-  const [eventsDataSourceId, setEventsDataSourceId] = useState(block.dynamic?.dataSourceId ?? "");
-  const [eventsDisplayMode, setEventsDisplayMode] = useState<"carousel" | "list">(
+  const [dynDataSourceId, setDynDataSourceId] = useState(block.dynamic?.dataSourceId ?? "");
+  const [dynDisplayMode, setDynDisplayMode] = useState<"carousel" | "list">(
     block.dynamic?.displayMode === "list" ? "list" : "carousel"
   );
-  const [eventsListLabel, setEventsListLabel] = useState(block.dynamic?.listLabel ?? "");
-  const [eventsMaxItems, setEventsMaxItems] = useState(String(block.dynamic?.maxItems ?? 10));
-  const [eventsPerItemDuration, setEventsPerItemDuration] = useState(
-    String(block.dynamic?.perItemDuration ?? 10)
-  );
+  const [dynListLabel, setDynListLabel] = useState(block.dynamic?.listLabel ?? "");
+  const [dynMaxItems, setDynMaxItems] = useState(String(block.dynamic?.maxItems ?? 10));
+  const [dynPerItemDuration, setDynPerItemDuration] = useState(String(block.dynamic?.perItemDuration ?? 10));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState("");
+
+  const isBulletinBoard = block.dynamic?.dataSource?.type === "wordpress_bulletin_board";
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -469,11 +510,11 @@ function EditBlockModal({
             : {}),
           ...(block.type === "dynamic_template"
             ? {
-                dataSourceId: eventsDataSourceId,
-                displayMode: eventsDisplayMode,
-                listLabel: eventsDisplayMode === "list" ? eventsListLabel : null,
-                maxItems: Number(eventsMaxItems) || 10,
-                perItemDuration: Number(eventsPerItemDuration) || 10,
+                dataSourceId: dynDataSourceId,
+                displayMode: dynDisplayMode,
+                listLabel: dynDisplayMode === "list" ? dynListLabel : null,
+                maxItems: Number(dynMaxItems) || 10,
+                perItemDuration: Number(dynPerItemDuration) || 10,
               }
             : {}),
         }),
@@ -558,10 +599,10 @@ function EditBlockModal({
         {block.type === "dynamic_template" && (
           <>
             <label className="block text-sm">
-              WordPress events data source
+              {isBulletinBoard ? "Community bulletin board" : "WordPress events"} data source
               <select
-                value={eventsDataSourceId}
-                onChange={(e) => setEventsDataSourceId(e.target.value)}
+                value={dynDataSourceId}
+                onChange={(e) => setDynDataSourceId(e.target.value)}
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               >
                 {dataSources.map((s) => (
@@ -574,30 +615,30 @@ function EditBlockModal({
             <div className="flex gap-2 text-sm">
               <button
                 type="button"
-                onClick={() => setEventsDisplayMode("carousel")}
+                onClick={() => setDynDisplayMode("carousel")}
                 className={`px-3 py-1.5 rounded border ${
-                  eventsDisplayMode === "carousel" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                  dynDisplayMode === "carousel" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
                 }`}
               >
                 Carousel
               </button>
               <button
                 type="button"
-                onClick={() => setEventsDisplayMode("list")}
+                onClick={() => setDynDisplayMode("list")}
                 className={`px-3 py-1.5 rounded border ${
-                  eventsDisplayMode === "list" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                  dynDisplayMode === "list" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
                 }`}
               >
                 List
               </button>
             </div>
 
-            {eventsDisplayMode === "list" && (
+            {dynDisplayMode === "list" && (
               <label className="block text-sm">
                 List label
                 <input
-                  value={eventsListLabel}
-                  onChange={(e) => setEventsListLabel(e.target.value)}
+                  value={dynListLabel}
+                  onChange={(e) => setDynListLabel(e.target.value)}
                   placeholder="e.g. Upcoming Events, or Coming this October"
                   className="border rounded px-3 py-2 text-sm w-full mt-1"
                 />
@@ -605,23 +646,23 @@ function EditBlockModal({
             )}
 
             <label className="block text-sm">
-              Number of events to display
+              Number of {isBulletinBoard ? "postings" : "events"} to display
               <input
                 type="number"
                 min={1}
                 max={50}
-                value={eventsMaxItems}
-                onChange={(e) => setEventsMaxItems(e.target.value)}
+                value={dynMaxItems}
+                onChange={(e) => setDynMaxItems(e.target.value)}
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               />
             </label>
             <label className="block text-sm">
-              {eventsDisplayMode === "list" ? "Seconds to display the list" : "Seconds per event in the carousel"}
+              {dynDisplayMode === "list" ? "Seconds to display the list" : "Seconds per item in the carousel"}
               <input
                 type="number"
                 min={1}
-                value={eventsPerItemDuration}
-                onChange={(e) => setEventsPerItemDuration(e.target.value)}
+                value={dynPerItemDuration}
+                onChange={(e) => setDynPerItemDuration(e.target.value)}
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               />
             </label>

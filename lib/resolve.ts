@@ -1,6 +1,14 @@
 import { db } from "@/db";
 import { isBlockEligible } from "./scheduling";
 import { fetchWordPressEvents, bestEventImageUrl, formatEventWhen, type WpEvent } from "./wordpress";
+import {
+  fetchBulletinBoardItems,
+  isBulletinBoardItemApproved,
+  isBulletinBoardItemEligible,
+  bulletinBoardImageUrl,
+  type WpBulletinBoardItem,
+} from "./wordpress";
+import { generateQrDataUrl } from "./qr";
 
 export type FormattedEvent = {
   id: number;
@@ -12,12 +20,20 @@ export type FormattedEvent = {
   imageUrl: string | null;
 };
 
+export type FormattedBulletinItem = {
+  id: number;
+  orgName: string;
+  body: string;
+  imageUrl: string | null;
+  qrCodeDataUrl: string | null;
+};
+
 export type ResolvedItem = {
   sequenceBlockId: string;
   blockId: string;
   name: string;
   category: { id: string; name: string; color: string };
-  type: "static_image" | "video" | "wordpress_events";
+  type: "static_image" | "video" | "wordpress_events" | "bulletin_board";
   fitMode: string;
   durationSeconds: number;
   // Rendering payload — shape depends on block type.
@@ -29,6 +45,9 @@ export type ResolvedItem = {
   // mode, `durationSeconds` is how long the whole list is shown before
   // advancing (like a static block).
   wordpressEvents?: { mode: "carousel" | "list"; listLabel: string | null; events: FormattedEvent[] };
+  // For bulletin_board: same carousel/list semantics as wordpressEvents
+  // above, but over Community Bulletin Board postings.
+  bulletinBoard?: { mode: "carousel" | "list"; listLabel: string | null; items: FormattedBulletinItem[] };
 };
 
 // Common named HTML entities WordPress content actually uses. Anything else
@@ -92,6 +111,17 @@ function formatEvent(event: WpEvent): FormattedEvent {
     date,
     timeRange,
     imageUrl: bestEventImageUrl(event),
+  };
+}
+
+async function formatBulletinItem(item: WpBulletinBoardItem): Promise<FormattedBulletinItem> {
+  const website = item.website?.trim();
+  return {
+    id: item.id,
+    orgName: decodeEntities(stripHtml(item.title?.rendered ?? "")),
+    body: truncate(stripHtml(item.content?.rendered ?? ""), 600),
+    imageUrl: bulletinBoardImageUrl(item),
+    qrCodeDataUrl: website ? await generateQrDataUrl(website) : null,
   };
 }
 
@@ -184,6 +214,44 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
       } catch {
         // Data source unreachable — skip this block for this cycle rather
         // than breaking the whole sequence (PRD §8 reliability).
+        continue;
+      }
+    } else if (
+      block.type === "dynamic_template" &&
+      block.dynamic &&
+      block.dynamic.dataSource.type === "wordpress_bulletin_board"
+    ) {
+      try {
+        let baseUrl: string | undefined;
+        try {
+          baseUrl = JSON.parse(block.dynamic.dataSource.config)?.base_url;
+        } catch {
+          // fall through to env default below
+        }
+        baseUrl = baseUrl || process.env.WORDPRESS_BASE_URL;
+        if (!baseUrl) continue;
+
+        const rawItems = await fetchBulletinBoardItems(baseUrl, block.dynamic.maxItems * 3);
+        const eligible = rawItems
+          .filter((i) => isBulletinBoardItemApproved(i))
+          .filter((i) => isBulletinBoardItemEligible(i, now))
+          .slice(0, block.dynamic.maxItems);
+        if (eligible.length === 0) continue;
+
+        const formatted = await Promise.all(eligible.map(formatBulletinItem));
+
+        const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
+        items.push({
+          sequenceBlockId: sb.id,
+          blockId: block.id,
+          name: block.name,
+          category: block.category,
+          type: "bulletin_board",
+          fitMode: block.fitMode,
+          durationSeconds: block.dynamic.perItemDuration,
+          bulletinBoard: { mode, listLabel: block.dynamic.listLabel, items: formatted },
+        });
+      } catch {
         continue;
       }
     }

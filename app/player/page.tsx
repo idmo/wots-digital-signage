@@ -53,6 +53,7 @@ export default function PlayerPage() {
   }, [index]);
 
   const isEventsCarousel = current?.type === "wordpress_events" && current.wordpressEvents?.mode === "carousel";
+  const isBulletinCarousel = current?.type === "bulletin_board" && current.bulletinBoard?.mode === "carousel";
 
   // Advance to the next item after the current one's duration — except for
   // video, which must always play to its actual end (the `onEnded` handler
@@ -63,7 +64,7 @@ export default function PlayerPage() {
   // has no internal cycling, so it advances here like a static block.
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current || current.type === "video" || isEventsCarousel) return;
+    if (!current || current.type === "video" || isEventsCarousel || isBulletinCarousel) return;
 
     advanceTimer.current = setTimeout(() => {
       setIndex((i) => (items.length ? (i + 1) % items.length : 0));
@@ -72,7 +73,7 @@ export default function PlayerPage() {
     return () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
     };
-  }, [current, isEventsCarousel, items.length]);
+  }, [current, isEventsCarousel, isBulletinCarousel, items.length]);
 
   // Internal event carousel: cycle through this block's events every
   // `perItemDuration` (durationSeconds) seconds, then advance to the next
@@ -94,6 +95,26 @@ export default function PlayerPage() {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
     };
   }, [current, isEventsCarousel, eventIndex, items.length]);
+
+  // Internal bulletin board carousel: same cycling pattern as the events
+  // carousel above, over Community Bulletin Board postings.
+  useEffect(() => {
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    if (!current || !isBulletinCarousel || !current.bulletinBoard) return;
+
+    const board = current.bulletinBoard.items;
+    advanceTimer.current = setTimeout(() => {
+      if (eventIndex + 1 >= board.length) {
+        setIndex((i) => (items.length ? (i + 1) % items.length : 0));
+      } else {
+        setEventIndex((i) => i + 1);
+      }
+    }, current.durationSeconds * 1000);
+
+    return () => {
+      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    };
+  }, [current, isBulletinCarousel, eventIndex, items.length]);
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
@@ -133,6 +154,14 @@ export default function PlayerPage() {
         {current?.type === "wordpress_events" && current.wordpressEvents?.mode === "list" && (
           <EventsListSlide label={current.wordpressEvents.listLabel} events={current.wordpressEvents.events} />
         )}
+
+        {current?.type === "bulletin_board" && current.bulletinBoard?.mode === "carousel" && (
+          <BulletinBoardSlide item={current.bulletinBoard.items[eventIndex]} />
+        )}
+
+        {current?.type === "bulletin_board" && current.bulletinBoard?.mode === "list" && (
+          <BulletinBoardListSlide label={current.bulletinBoard.listLabel} items={current.bulletinBoard.items} />
+        )}
       </div>
     </div>
   );
@@ -163,6 +192,69 @@ function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").Formatt
           {event.weekday}, {event.date} · {event.timeRange}
         </div>
         {event.excerpt && <p className="text-[2.625rem] text-neutral-800 leading-snug">{event.excerpt}</p>}
+      </div>
+    </div>
+  );
+}
+
+// Community Bulletin Board — brand dark green from the shop's website.
+const BULLETIN_GREEN = "#60893c";
+
+function BulletinBoardSlide({ item }: { item: import("@/lib/resolve").FormattedBulletinItem }) {
+  if (!item) return null;
+  const hasImage = Boolean(item.imageUrl);
+
+  return (
+    <div className="relative w-full h-full flex overflow-hidden" style={{ backgroundColor: BULLETIN_GREEN }}>
+      {/* Text panel: header (org name) + body. Full width & centered when
+          there's no featured image; otherwise the left half of a 50/50 split. */}
+      <div
+        key={item.id}
+        className={`flex flex-col justify-center gap-6 px-16 py-12 text-white ${
+          hasImage ? "w-1/2" : "w-full items-center text-center"
+        }`}
+      >
+        <h1 className="text-[4rem] font-bold leading-tight">{item.orgName}</h1>
+        <p className={`text-[2.25rem] leading-snug whitespace-pre-line ${hasImage ? "" : "max-w-4xl"}`}>
+          {item.body}
+        </p>
+        {item.qrCodeDataUrl && (
+          <div className="flex items-center gap-4 mt-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={item.qrCodeDataUrl} alt="Scan for more" className="w-32 h-32 bg-white p-2 rounded" />
+            <span className="text-lg text-white/80">Scan to learn more</span>
+          </div>
+        )}
+      </div>
+
+      {hasImage && (
+        <div className="w-1/2 h-full">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.imageUrl!} alt={item.orgName} className="w-full h-full object-cover" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulletinBoardListSlide({
+  label,
+  items,
+}: {
+  label: string | null;
+  items: import("@/lib/resolve").FormattedBulletinItem[];
+}) {
+  return (
+    <div className="w-full h-full flex flex-col px-16 py-12 text-white" style={{ backgroundColor: BULLETIN_GREEN }}>
+      {label && <h1 className="text-5xl font-bold mb-8 shrink-0">{label}</h1>}
+      <div className="flex-1 flex flex-col justify-center gap-6 min-h-0 overflow-hidden">
+        {items.map((item) => (
+          <div key={item.id} className="flex items-start gap-8 border-b border-white/30 pb-4">
+            <div className="text-2xl font-semibold w-72 shrink-0">{item.orgName}</div>
+            <div className="text-xl text-white/90 line-clamp-2">{item.body}</div>
+          </div>
+        ))}
+        {items.length === 0 && <p className="text-xl text-white/70">No current postings.</p>}
       </div>
     </div>
   );
