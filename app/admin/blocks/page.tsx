@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 
 type Category = { id: string; name: string; color: string; defaultDurationSeconds: number };
+type DataSource = { id: string; name: string; type: string };
+type DynamicInfo = {
+  dataSourceId: string;
+  dataSource: DataSource;
+  displayMode: string;
+  maxItems: number;
+  perItemDuration: number;
+  listLabel: string | null;
+};
 type Block = {
   id: string;
   name: string;
@@ -13,12 +22,16 @@ type Block = {
   note: string | null;
   staticImage?: { imageAsset: { filePath: string } };
   video?: { videoAsset: { filePath: string }; durationSeconds: number };
+  dynamic?: DynamicInfo;
 };
 
 export default function BlockLibraryPage() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [blockKind, setBlockKind] = useState<"upload" | "wordpress_events">("upload");
 
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -28,14 +41,26 @@ export default function BlockLibraryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const [eventsDataSourceId, setEventsDataSourceId] = useState("");
+  const [eventsMaxItems, setEventsMaxItems] = useState("10");
+  const [eventsPerItemDuration, setEventsPerItemDuration] = useState("10");
+
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
 
   const load = async () => {
-    const [blocksRes, catsRes] = await Promise.all([fetch("/api/blocks"), fetch("/api/categories")]);
+    const [blocksRes, catsRes, sourcesRes] = await Promise.all([
+      fetch("/api/blocks"),
+      fetch("/api/categories"),
+      fetch("/api/data-sources"),
+    ]);
     const cats = await catsRes.json();
+    const sources: DataSource[] = await sourcesRes.json();
     setBlocks(await blocksRes.json());
     setCategories(cats);
+    const eventSources = sources.filter((s) => s.type === "wordpress_events");
+    setDataSources(eventSources);
     if (!categoryId && cats[0]) setCategoryId(cats[0].id);
+    if (!eventsDataSourceId && eventSources[0]) setEventsDataSourceId(eventSources[0].id);
     setLoading(false);
   };
 
@@ -49,37 +74,82 @@ export default function BlockLibraryPage() {
     e.preventDefault();
     setError("");
 
+    if (blockKind === "upload") {
+      const missing: string[] = [];
+      if (!name.trim()) missing.push("an internal label");
+      if (!categoryId) missing.push("a category");
+      if (!file) missing.push("a file");
+      if (missing.length) {
+        setError(`Add ${missing.join(" and ")} before submitting.`);
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        const uploadForm = new FormData();
+        uploadForm.append("file", file!);
+        const assetRes = await fetch("/api/assets", { method: "POST", body: uploadForm });
+        if (!assetRes.ok) {
+          const body = await assetRes.json().catch(() => ({}));
+          throw new Error(body.error ?? `Upload failed (${assetRes.status})`);
+        }
+        const asset = await assetRes.json();
+
+        const type = asset.type === "video" ? "video" : "static_image";
+
+        const blockRes = await fetch("/api/blocks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            categoryId,
+            type,
+            assetId: asset.id,
+            textHeavy,
+            endDate: endDate || null,
+          }),
+        });
+        if (!blockRes.ok) {
+          const body = await blockRes.json().catch(() => ({}));
+          throw new Error(body.error ?? `Couldn't create block (${blockRes.status})`);
+        }
+
+        setName("");
+        setFile(null);
+        setTextHeavy(false);
+        setEndDate("");
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong.");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // WordPress Events Carousel
     const missing: string[] = [];
     if (!name.trim()) missing.push("an internal label");
     if (!categoryId) missing.push("a category");
-    if (!file) missing.push("a file");
+    if (!eventsDataSourceId) missing.push("a WordPress events data source");
     if (missing.length) {
-      setError(`Add ${missing.join(" and ")} before submitting.`);
+      setError(`Add ${missing.join(", ")} before submitting.`);
       return;
     }
 
     setSubmitting(true);
     try {
-      const uploadForm = new FormData();
-      uploadForm.append("file", file!);
-      const assetRes = await fetch("/api/assets", { method: "POST", body: uploadForm });
-      if (!assetRes.ok) {
-        const body = await assetRes.json().catch(() => ({}));
-        throw new Error(body.error ?? `Upload failed (${assetRes.status})`);
-      }
-      const asset = await assetRes.json();
-
-      const type = asset.type === "video" ? "video" : "static_image";
-
       const blockRes = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
           categoryId,
-          type,
-          assetId: asset.id,
-          textHeavy,
+          type: "dynamic_template",
+          dataSourceId: eventsDataSourceId,
+          displayMode: "carousel",
+          maxItems: Number(eventsMaxItems) || 10,
+          perItemDuration: Number(eventsPerItemDuration) || 10,
           endDate: endDate || null,
         }),
       });
@@ -87,10 +157,7 @@ export default function BlockLibraryPage() {
         const body = await blockRes.json().catch(() => ({}));
         throw new Error(body.error ?? `Couldn't create block (${blockRes.status})`);
       }
-
       setName("");
-      setFile(null);
-      setTextHeavy(false);
       setEndDate("");
       await load();
     } catch (err) {
@@ -111,6 +178,28 @@ export default function BlockLibraryPage() {
 
       <form onSubmit={submit} className="bg-white border rounded p-4 space-y-3 max-w-lg">
         <h2 className="font-medium">New Block</h2>
+
+        <div className="flex gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => setBlockKind("upload")}
+            className={`px-3 py-1.5 rounded border ${
+              blockKind === "upload" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+            }`}
+          >
+            Image / Video
+          </button>
+          <button
+            type="button"
+            onClick={() => setBlockKind("wordpress_events")}
+            className={`px-3 py-1.5 rounded border ${
+              blockKind === "wordpress_events" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+            }`}
+          >
+            WordPress Events Carousel
+          </button>
+        </div>
+
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -128,16 +217,67 @@ export default function BlockLibraryPage() {
             </option>
           ))}
         </select>
-        <input
-          type="file"
-          accept="image/*,video/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="text-sm w-full"
-        />
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={textHeavy} onChange={(e) => setTextHeavy(e.target.checked)} />
-          Text-heavy (longer default duration)
-        </label>
+
+        {blockKind === "upload" ? (
+          <>
+            <input
+              type="file"
+              accept="image/*,video/*"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="text-sm w-full"
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={textHeavy} onChange={(e) => setTextHeavy(e.target.checked)} />
+              Text-heavy (longer default duration)
+            </label>
+          </>
+        ) : (
+          <>
+            {dataSources.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                No WordPress events data source yet — add one on the{" "}
+                <a href="/admin/data-sources" className="text-indigo-600 hover:underline">
+                  Data Sources
+                </a>{" "}
+                page first.
+              </p>
+            ) : (
+              <select
+                value={eventsDataSourceId}
+                onChange={(e) => setEventsDataSourceId(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full"
+              >
+                {dataSources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <label className="block text-sm">
+              Number of events to display
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={eventsMaxItems}
+                onChange={(e) => setEventsMaxItems(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full mt-1"
+              />
+            </label>
+            <label className="block text-sm">
+              Seconds per event in the carousel
+              <input
+                type="number"
+                min={1}
+                value={eventsPerItemDuration}
+                onChange={(e) => setEventsPerItemDuration(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full mt-1"
+              />
+            </label>
+          </>
+        )}
+
         <label className="block text-sm">
           Expires on (optional — blank = evergreen)
           <input
@@ -153,7 +293,7 @@ export default function BlockLibraryPage() {
           disabled={submitting}
           className="bg-indigo-600 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
         >
-          {submitting ? "Uploading…" : "Add Block"}
+          {submitting ? "Saving…" : "Add Block"}
         </button>
       </form>
 
@@ -170,6 +310,12 @@ export default function BlockLibraryPage() {
                 )}
                 {b.type === "video" && b.video && (
                   <video src={b.video.videoAsset.filePath} className="w-full h-full object-cover" muted />
+                )}
+                {b.type === "dynamic_template" && b.dynamic && (
+                  <div className="text-center px-2">
+                    <div className="text-2xl">🗓️</div>
+                    <div className="text-xs text-neutral-500 mt-1">Events Carousel</div>
+                  </div>
                 )}
               </div>
               <div className="p-2 flex-1 flex flex-col">
@@ -188,7 +334,11 @@ export default function BlockLibraryPage() {
                     style={{ backgroundColor: b.category.color }}
                   />
                   {b.category.name} · {b.status} ·{" "}
-                  {b.type === "video" ? `${b.video?.durationSeconds ?? "?"}s (full length)` : `${b.durationSeconds ?? b.category.defaultDurationSeconds}s`}
+                  {b.type === "video"
+                    ? `${b.video?.durationSeconds ?? "?"}s (full length)`
+                    : b.type === "dynamic_template"
+                    ? `${b.dynamic?.maxItems ?? "?"} events · ${b.dynamic?.perItemDuration ?? "?"}s each`
+                    : `${b.durationSeconds ?? b.category.defaultDurationSeconds}s`}
                 </div>
                 {b.note && (
                   <div className="text-xs text-neutral-600 italic mt-1 line-clamp-2">{b.note}</div>
@@ -204,6 +354,7 @@ export default function BlockLibraryPage() {
         <EditBlockModal
           block={editingBlock}
           categories={categories}
+          dataSources={dataSources}
           onClose={() => setEditingBlock(null)}
           onSaved={async () => {
             setEditingBlock(null);
@@ -222,12 +373,14 @@ export default function BlockLibraryPage() {
 function EditBlockModal({
   block,
   categories,
+  dataSources,
   onClose,
   onSaved,
   onDeleted,
 }: {
   block: Block;
   categories: Category[];
+  dataSources: DataSource[];
   onClose: () => void;
   onSaved: () => void;
   onDeleted: () => void;
@@ -237,6 +390,11 @@ function EditBlockModal({
   const [note, setNote] = useState(block.note ?? "");
   const [durationSeconds, setDurationSeconds] = useState(
     block.durationSeconds != null ? String(block.durationSeconds) : ""
+  );
+  const [eventsDataSourceId, setEventsDataSourceId] = useState(block.dynamic?.dataSourceId ?? "");
+  const [eventsMaxItems, setEventsMaxItems] = useState(String(block.dynamic?.maxItems ?? 10));
+  const [eventsPerItemDuration, setEventsPerItemDuration] = useState(
+    String(block.dynamic?.perItemDuration ?? 10)
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -261,6 +419,13 @@ function EditBlockModal({
           note,
           ...(block.type === "static_image"
             ? { durationSeconds: durationSeconds === "" ? null : Number(durationSeconds) }
+            : {}),
+          ...(block.type === "dynamic_template"
+            ? {
+                dataSourceId: eventsDataSourceId,
+                maxItems: Number(eventsMaxItems) || 10,
+                perItemDuration: Number(eventsPerItemDuration) || 10,
+              }
             : {}),
         }),
       });
@@ -328,7 +493,7 @@ function EditBlockModal({
           </select>
         </label>
 
-        {block.type === "static_image" ? (
+        {block.type === "static_image" && (
           <label className="block text-sm">
             Duration (seconds) — blank uses the category default ({block.category.defaultDurationSeconds}s)
             <input
@@ -340,11 +505,53 @@ function EditBlockModal({
               className="border rounded px-3 py-2 text-sm w-full mt-1"
             />
           </label>
-        ) : (
+        )}
+
+        {block.type === "video" && (
           <p className="text-xs text-neutral-500">
             Videos always play to their full length ({block.video?.durationSeconds ?? "?"}s) — duration
             isn&apos;t editable for video blocks.
           </p>
+        )}
+
+        {block.type === "dynamic_template" && (
+          <>
+            <label className="block text-sm">
+              WordPress events data source
+              <select
+                value={eventsDataSourceId}
+                onChange={(e) => setEventsDataSourceId(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full mt-1"
+              >
+                {dataSources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              Number of events to display
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={eventsMaxItems}
+                onChange={(e) => setEventsMaxItems(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full mt-1"
+              />
+            </label>
+            <label className="block text-sm">
+              Seconds per event in the carousel
+              <input
+                type="number"
+                min={1}
+                value={eventsPerItemDuration}
+                onChange={(e) => setEventsPerItemDuration(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full mt-1"
+              />
+            </label>
+          </>
         )}
 
         <label className="block text-sm">

@@ -10,6 +10,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/blocks/
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
+      dynamic: { with: { dataSource: true } },
     },
   });
   if (!block) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -19,7 +20,21 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/blocks/
 export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[id]">) {
   const { id } = await ctx.params;
   const body = await request.json();
-  const { name, categoryId, fitMode, startDate, endDate, durationSeconds, status, note } = body;
+  const {
+    name,
+    categoryId,
+    fitMode,
+    startDate,
+    endDate,
+    durationSeconds,
+    status,
+    note,
+    dataSourceId,
+    displayMode,
+    maxItems,
+    perItemDuration,
+    listLabel,
+  } = body;
 
   const existing = await db.query.blocks.findFirst({ where: eq(schema.blocks.id, id) });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -42,12 +57,26 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
     })
     .where(eq(schema.blocks.id, id));
 
+  if (existing.type === "dynamic_template") {
+    await db
+      .update(schema.dynamicBlocks)
+      .set({
+        ...(dataSourceId !== undefined ? { dataSourceId } : {}),
+        ...(displayMode !== undefined ? { displayMode } : {}),
+        ...(maxItems !== undefined ? { maxItems: Number(maxItems) } : {}),
+        ...(perItemDuration !== undefined ? { perItemDuration: Number(perItemDuration) } : {}),
+        ...(listLabel !== undefined ? { listLabel: listLabel || null } : {}),
+      })
+      .where(eq(schema.dynamicBlocks.blockId, id));
+  }
+
   const block = await db.query.blocks.findFirst({
     where: eq(schema.blocks.id, id),
     with: {
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
+      dynamic: { with: { dataSource: true } },
     },
   });
 

@@ -1,0 +1,1 @@
+ALTER TABLE "dynamic_blocks" ALTER COLUMN "template_id" DROP NOT NULL;

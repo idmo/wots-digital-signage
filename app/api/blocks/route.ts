@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
+      dynamic: { with: { dataSource: true } },
     },
   });
 
@@ -25,23 +26,47 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Creates a block. Body shape (Phase 1 — static_image | video):
- * { name, categoryId, type, fitMode?, startDate?, endDate?,
- *   durationSeconds?, textHeavy?, assetId }
+ * Creates a block.
+ * static_image | video: { name, categoryId, type, fitMode?, startDate?,
+ *   endDate?, durationSeconds?, textHeavy?, assetId }
+ * dynamic_template (built-in WordPress Events Carousel — PRD §3.4/§6.8):
+ *   { name, categoryId, type: "dynamic_template", dataSourceId,
+ *     displayMode?, maxItems?, perItemDuration?, listLabel?, startDate?, endDate? }
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { name, categoryId, type, fitMode, startDate, endDate, durationSeconds, textHeavy, assetId } = body;
+  const {
+    name,
+    categoryId,
+    type,
+    fitMode,
+    startDate,
+    endDate,
+    durationSeconds,
+    textHeavy,
+    assetId,
+    dataSourceId,
+    displayMode,
+    maxItems,
+    perItemDuration,
+    listLabel,
+  } = body;
 
-  if (!name || !categoryId || !type || !assetId) {
-    return NextResponse.json(
-      { error: "name, categoryId, type, and assetId are required" },
-      { status: 400 }
-    );
+  if (!name || !categoryId || !type) {
+    return NextResponse.json({ error: "name, categoryId, and type are required" }, { status: 400 });
+  }
+  if ((type === "static_image" || type === "video") && !assetId) {
+    return NextResponse.json({ error: "assetId is required for this block type" }, { status: 400 });
+  }
+  if (type === "dynamic_template" && !dataSourceId) {
+    return NextResponse.json({ error: "dataSourceId is required for a dynamic block" }, { status: 400 });
   }
 
-  const asset = await db.query.assets.findFirst({ where: eq(schema.assets.id, assetId) });
-  if (!asset) {
+  const asset =
+    type === "static_image" || type === "video"
+      ? await db.query.assets.findFirst({ where: eq(schema.assets.id, assetId) })
+      : null;
+  if ((type === "static_image" || type === "video") && !asset) {
     return NextResponse.json({ error: "asset not found" }, { status: 404 });
   }
 
@@ -70,7 +95,17 @@ export async function POST(request: NextRequest) {
       await tx.insert(schema.videoBlocks).values({
         blockId: block.id,
         videoAssetId: assetId,
-        durationSeconds: asset.durationSeconds ?? 10,
+        durationSeconds: asset!.durationSeconds ?? 10,
+      });
+    } else if (type === "dynamic_template") {
+      await tx.insert(schema.dynamicBlocks).values({
+        blockId: block.id,
+        templateId: null,
+        dataSourceId,
+        displayMode: displayMode ?? "carousel",
+        maxItems: maxItems ?? 20,
+        perItemDuration: perItemDuration ?? 10,
+        listLabel: listLabel || null,
       });
     }
 
@@ -83,6 +118,7 @@ export async function POST(request: NextRequest) {
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
+      dynamic: { with: { dataSource: true } },
     },
   });
 

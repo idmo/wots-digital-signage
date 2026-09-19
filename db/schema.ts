@@ -104,9 +104,11 @@ export const dynamicBlocks = pgTable("dynamic_blocks", {
   blockId: text("block_id")
     .primaryKey()
     .references(() => blocks.id, { onDelete: "cascade" }),
-  templateId: text("template_id")
-    .notNull()
-    .references(() => templates.id),
+  // Null = rendered by a built-in renderer (e.g. the WordPress Events
+  // carousel) rather than a user-authored template. The general
+  // template engine (PRD §3.6, arbitrary HTML + variable substitution)
+  // is still Phase 2+; this is the pragmatic first slice of §3.4/§6.8.
+  templateId: text("template_id").references(() => templates.id),
   dataSourceId: text("data_source_id")
     .notNull()
     .references(() => dataSources.id),
