@@ -55,66 +55,49 @@ export default function PlayerPage() {
   const isEventsCarousel = current?.type === "wordpress_events" && current.wordpressEvents?.mode === "carousel";
   const isBulletinCarousel = current?.type === "bulletin_board" && current.bulletinBoard?.mode === "carousel";
 
-  // Advance to the next item after the current one's duration — except for
-  // video, which must always play to its actual end (the `onEnded` handler
-  // below advances it) rather than a fixed timer that could cut it short
-  // (e.g. if the stored duration is only an estimate); and an events
-  // carousel, which runs its own internal per-event timer (handled below)
-  // before advancing to the next sequence item. A "list" mode events block
-  // has no internal cycling, so it advances here like a static block.
+  // Single timer owner for advancing playback — video, an events carousel,
+  // a bulletin board carousel, and everything else (static blocks, list-mode
+  // events/bulletin blocks) each need a different advance rule, but they all
+  // share one `advanceTimer` ref, so all that logic has to live in ONE
+  // effect. Splitting it across multiple effects on the same ref is a bug:
+  // each effect unconditionally clears the ref on every run (its own cleanup
+  // *and* its "does this apply to me" guard both clear first), so whichever
+  // effect runs last on a given render cancels the timer an earlier effect
+  // just set, even when the later effect has nothing to do.
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current || current.type === "video" || isEventsCarousel || isBulletinCarousel) return;
+    if (!current || current.type === "video") return;
 
-    advanceTimer.current = setTimeout(() => {
-      setIndex((i) => (items.length ? (i + 1) % items.length : 0));
-    }, current.durationSeconds * 1000);
-
-    return () => {
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    };
-  }, [current, isEventsCarousel, isBulletinCarousel, items.length]);
-
-  // Internal event carousel: cycle through this block's events every
-  // `perItemDuration` (durationSeconds) seconds, then advance to the next
-  // block in the sequence once all events have been shown.
-  useEffect(() => {
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current || !isEventsCarousel || !current.wordpressEvents) return;
-
-    const events = current.wordpressEvents.events;
-    advanceTimer.current = setTimeout(() => {
-      if (eventIndex + 1 >= events.length) {
+    if (isEventsCarousel && current.wordpressEvents) {
+      const events = current.wordpressEvents.events;
+      advanceTimer.current = setTimeout(() => {
+        if (eventIndex + 1 >= events.length) {
+          setIndex((i) => (items.length ? (i + 1) % items.length : 0));
+        } else {
+          setEventIndex((i) => i + 1);
+        }
+      }, current.durationSeconds * 1000);
+    } else if (isBulletinCarousel && current.bulletinBoard) {
+      const board = current.bulletinBoard.items;
+      advanceTimer.current = setTimeout(() => {
+        if (eventIndex + 1 >= board.length) {
+          setIndex((i) => (items.length ? (i + 1) % items.length : 0));
+        } else {
+          setEventIndex((i) => i + 1);
+        }
+      }, current.durationSeconds * 1000);
+    } else {
+      // Static block, or a "list" mode events/bulletin block — no internal
+      // cycling, just advance to the next sequence item after its duration.
+      advanceTimer.current = setTimeout(() => {
         setIndex((i) => (items.length ? (i + 1) % items.length : 0));
-      } else {
-        setEventIndex((i) => i + 1);
-      }
-    }, current.durationSeconds * 1000);
+      }, current.durationSeconds * 1000);
+    }
 
     return () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
     };
-  }, [current, isEventsCarousel, eventIndex, items.length]);
-
-  // Internal bulletin board carousel: same cycling pattern as the events
-  // carousel above, over Community Bulletin Board postings.
-  useEffect(() => {
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current || !isBulletinCarousel || !current.bulletinBoard) return;
-
-    const board = current.bulletinBoard.items;
-    advanceTimer.current = setTimeout(() => {
-      if (eventIndex + 1 >= board.length) {
-        setIndex((i) => (items.length ? (i + 1) % items.length : 0));
-      } else {
-        setEventIndex((i) => i + 1);
-      }
-    }, current.durationSeconds * 1000);
-
-    return () => {
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    };
-  }, [current, isBulletinCarousel, eventIndex, items.length]);
+  }, [current, isEventsCarousel, isBulletinCarousel, eventIndex, items.length]);
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
