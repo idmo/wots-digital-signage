@@ -25,6 +25,7 @@ export default function BlockLibraryPage() {
   const [textHeavy, setTextHeavy] = useState(false);
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const load = async () => {
     const [blocksRes, catsRes] = await Promise.all([fetch("/api/blocks"), fetch("/api/categories")]);
@@ -43,17 +44,31 @@ export default function BlockLibraryPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || !name || !categoryId) return;
+    setError("");
+
+    const missing: string[] = [];
+    if (!name.trim()) missing.push("an internal label");
+    if (!categoryId) missing.push("a category");
+    if (!file) missing.push("a file");
+    if (missing.length) {
+      setError(`Add ${missing.join(" and ")} before submitting.`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const uploadForm = new FormData();
-      uploadForm.append("file", file);
+      uploadForm.append("file", file!);
       const assetRes = await fetch("/api/assets", { method: "POST", body: uploadForm });
+      if (!assetRes.ok) {
+        const body = await assetRes.json().catch(() => ({}));
+        throw new Error(body.error ?? `Upload failed (${assetRes.status})`);
+      }
       const asset = await assetRes.json();
 
       const type = asset.type === "video" ? "video" : "static_image";
 
-      await fetch("/api/blocks", {
+      const blockRes = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -65,12 +80,18 @@ export default function BlockLibraryPage() {
           endDate: endDate || null,
         }),
       });
+      if (!blockRes.ok) {
+        const body = await blockRes.json().catch(() => ({}));
+        throw new Error(body.error ?? `Couldn't create block (${blockRes.status})`);
+      }
 
       setName("");
       setFile(null);
       setTextHeavy(false);
       setEndDate("");
       await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSubmitting(false);
     }
@@ -123,6 +144,7 @@ export default function BlockLibraryPage() {
             className="border rounded px-3 py-2 text-sm w-full mt-1"
           />
         </label>
+        {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
