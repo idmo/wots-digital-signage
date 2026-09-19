@@ -19,7 +19,10 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/blocks/
 export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[id]">) {
   const { id } = await ctx.params;
   const body = await request.json();
-  const { name, categoryId, fitMode, startDate, endDate, durationSeconds, status } = body;
+  const { name, categoryId, fitMode, startDate, endDate, durationSeconds, status, note } = body;
+
+  const existing = await db.query.blocks.findFirst({ where: eq(schema.blocks.id, id) });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await db
     .update(schema.blocks)
@@ -31,8 +34,11 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
         ? { startDate: startDate ? new Date(startDate).toISOString() : new Date().toISOString() }
         : {}),
       ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate).toISOString() : null } : {}),
-      ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+      ...(durationSeconds !== undefined
+        ? { durationSeconds: durationSeconds === null || durationSeconds === "" ? null : Number(durationSeconds) }
+        : {}),
       ...(status !== undefined ? { status } : {}),
+      ...(note !== undefined ? { note: note === "" ? null : note } : {}),
     })
     .where(eq(schema.blocks.id, id));
 

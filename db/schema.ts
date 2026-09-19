@@ -73,6 +73,8 @@ export const blocks = pgTable(
     durationSeconds: integer("duration_seconds"),
     // cover | contain | contain_blurred
     fitMode: text("fit_mode").notNull().default("cover"),
+    // Free-text annotation for whoever's managing content (e.g. "swap after Sept 30").
+    note: text("note"),
     ...timestamps,
   },
   (table) => [index("blocks_status_idx").on(table.status), index("blocks_category_idx").on(table.categoryId)]

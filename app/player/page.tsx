@@ -44,10 +44,13 @@ export default function PlayerPage() {
 
   const current = items[index];
 
-  // Advance to the next item after the current one's duration.
+  // Advance to the next item after the current one's duration — except for
+  // video, which must always play to its actual end (the `onEnded` handler
+  // below advances it) rather than a fixed timer that could cut it short
+  // (e.g. if the stored duration is only an estimate).
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current) return;
+    if (!current || current.type === "video") return;
 
     advanceTimer.current = setTimeout(() => {
       setIndex((i) => (items.length ? (i + 1) % items.length : 0));
