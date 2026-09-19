@@ -31,14 +31,41 @@ export type ResolvedItem = {
   wordpressEvents?: { mode: "carousel" | "list"; listLabel: string | null; events: FormattedEvent[] };
 };
 
+// Common named HTML entities WordPress content actually uses. Anything else
+// numeric (&#8217; / &#x2019; etc.) is decoded generically below rather than
+// needing its own line here.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+  ldquo: "“",
+  rdquo: "”",
+  lsquo: "‘",
+  rsquo: "’",
+};
+
+/** Decodes HTML entities (named + numeric/hex) in a single pass so text like
+ * titles and excerpts — which come from WordPress as encoded HTML — render
+ * their real characters (e.g. "Books &amp; Bites" -> "Books & Bites"). */
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (match, entity: string) => {
+    if (entity[0] === "#") {
+      const isHex = entity[1] === "x" || entity[1] === "X";
+      const code = isHex ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
+      return Number.isNaN(code) ? match : String.fromCodePoint(code);
+    }
+    return NAMED_ENTITIES[entity] ?? match;
+  });
+}
+
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&#8217;|&#039;/g, "'")
-    .replace(/&#8220;|&#8221;|&quot;/g, '"')
-    .replace(/&#8211;/g, "–")
+  return decodeEntities(html.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -58,7 +85,8 @@ function formatEvent(event: WpEvent): FormattedEvent {
   const excerptSource = event.excerpt && event.excerpt.trim() ? event.excerpt : event.description ?? "";
   return {
     id: event.id,
-    title: event.title,
+    // Titles come from WordPress as encoded HTML too (e.g. "Books &amp; Bites").
+    title: decodeEntities(event.title),
     excerpt: truncate(stripHtml(excerptSource), 280),
     weekday,
     date,
