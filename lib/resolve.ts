@@ -41,12 +41,23 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  const cut = text.slice(0, maxLength);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${cut.slice(0, lastSpace > 0 ? lastSpace : maxLength)}…`;
+}
+
 function formatEvent(event: WpEvent): FormattedEvent {
   const { weekday, date, timeRange } = formatEventWhen(event);
+  // The Events Calendar leaves `excerpt` empty unless the organizer sets a
+  // manual excerpt — most events on this site don't, so fall back to the
+  // (much longer, HTML) description, stripped and trimmed to a display length.
+  const excerptSource = event.excerpt && event.excerpt.trim() ? event.excerpt : event.description ?? "";
   return {
     id: event.id,
     title: event.title,
-    excerpt: stripHtml(event.excerpt ?? ""),
+    excerpt: truncate(stripHtml(excerptSource), 280),
     weekday,
     date,
     timeRange,
