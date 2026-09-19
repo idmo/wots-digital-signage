@@ -141,8 +141,8 @@ export default function PlayerPage() {
 function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").FormattedEvent }) {
   return (
     // Featured image fills the whole stage as a background; a translucent
-    // panel with the event details slides in from the bottom-left corner,
-    // sized to a third of the stage's width and height.
+    // panel with the event details spans the full width across the bottom
+    // quarter of the stage, sliding up from off-screen.
     <div className="relative w-full h-full bg-black overflow-hidden">
       {event.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -154,14 +154,14 @@ function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").Formatt
       )}
       <div
         key={event.id}
-        className="event-slide-in absolute left-0 bottom-0 w-1/3 h-1/3 flex flex-col justify-center gap-2 px-6 py-5 overflow-hidden"
+        className="event-slide-in absolute left-0 bottom-0 w-full h-1/4 flex flex-col justify-center gap-2 px-12 py-4 overflow-hidden"
         style={{ backgroundColor: "rgba(255,255,255,0.85)" }}
       >
-        <h1 className="text-2xl font-bold leading-tight text-neutral-900 line-clamp-2">{event.title}</h1>
-        <div className="text-base font-medium text-neutral-700">
+        <h1 className="text-[4.5rem] font-bold leading-tight text-neutral-900 line-clamp-1">{event.title}</h1>
+        <div className="text-[3rem] font-medium text-neutral-700">
           {event.weekday}, {event.date} · {event.timeRange}
         </div>
-        {event.excerpt && <p className="text-sm text-neutral-800 line-clamp-3">{event.excerpt}</p>}
+        {event.excerpt && <p className="text-[2.625rem] text-neutral-800 line-clamp-1">{event.excerpt}</p>}
       </div>
     </div>
   );
