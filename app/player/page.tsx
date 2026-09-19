@@ -140,25 +140,27 @@ export default function PlayerPage() {
 
 function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").FormattedEvent }) {
   return (
-    // The player stage is already 16:9 (a signage display); featured image
-    // across the top 2/3, title / date+time / excerpt in the bottom 1/3.
-    <div className="w-full h-full bg-white flex flex-col">
-      <div className="h-2/3 w-full bg-neutral-100 shrink-0">
-        {event.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-neutral-400 text-lg">
-            No image
-          </div>
-        )}
-      </div>
-      <div className="h-1/3 w-full flex flex-col justify-center px-12 py-4 gap-2 min-h-0 overflow-hidden">
-        <h1 className="text-4xl font-bold leading-tight text-neutral-900">{event.title}</h1>
-        <div className="text-xl font-medium text-neutral-600">
+    // Featured image fills the whole stage as a background; a translucent
+    // panel with the event details slides in from the left on top of it.
+    <div className="relative w-full h-full bg-black overflow-hidden">
+      {event.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={event.imageUrl} alt={event.title} className="absolute inset-0 w-full h-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center text-neutral-400 text-lg bg-neutral-800">
+          No image
+        </div>
+      )}
+      <div
+        key={event.id}
+        className="event-slide-in absolute left-0 top-0 bottom-0 w-[42%] flex flex-col justify-center gap-4 px-12 py-10"
+        style={{ backgroundColor: "rgba(255,255,255,0.85)" }}
+      >
+        <h1 className="text-5xl font-bold leading-tight text-neutral-900">{event.title}</h1>
+        <div className="text-xl font-medium text-neutral-700">
           {event.weekday}, {event.date} · {event.timeRange}
         </div>
-        {event.excerpt && <p className="text-lg text-neutral-700 line-clamp-2">{event.excerpt}</p>}
+        {event.excerpt && <p className="text-lg text-neutral-800 line-clamp-5">{event.excerpt}</p>}
       </div>
     </div>
   );

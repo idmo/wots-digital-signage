@@ -24,3 +24,18 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Player: the events-carousel info panel slides in from off-screen left
+   each time a new event appears (re-triggered by remounting on event id). */
+@keyframes event-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.event-slide-in {
+  animation: event-slide-in 0.6s ease-out;
+}
