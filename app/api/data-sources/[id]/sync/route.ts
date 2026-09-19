@@ -32,15 +32,14 @@ export async function POST(_request: NextRequest, ctx: RouteContext<"/api/data-s
       throw new Error(`sync not yet implemented for type ${source.type}`);
     }
 
-    // NOTE: better-sqlite3 transactions run synchronously — no `await` inside this callback.
-    db.transaction((tx) => {
-      tx.update(schema.dataSources)
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.dataSources)
         .set({ lastSyncedAt: new Date().toISOString() })
-        .where(eq(schema.dataSources.id, id))
-        .run();
-      tx.insert(schema.syncLogs)
-        .values({ dataSourceId: id, status: "success", itemsFetched, trigger: "manual" })
-        .run();
+        .where(eq(schema.dataSources.id, id));
+      await tx
+        .insert(schema.syncLogs)
+        .values({ dataSourceId: id, status: "success", itemsFetched, trigger: "manual" });
     });
 
     return NextResponse.json({ ok: true, itemsFetched });

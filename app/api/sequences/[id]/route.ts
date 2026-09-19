@@ -22,20 +22,16 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/sequence
   const { id } = await ctx.params;
   const body = await request.json();
 
-  // NOTE: better-sqlite3 transactions run synchronously — no `await` inside
-  // this callback. Use `.run()` execution methods instead.
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     if (body.name !== undefined) {
-      tx.update(schema.sequences).set({ name: body.name }).where(eq(schema.sequences.id, id)).run();
+      await tx.update(schema.sequences).set({ name: body.name }).where(eq(schema.sequences.id, id));
     }
 
     if (Array.isArray(body.blockIds)) {
-      tx.delete(schema.sequenceBlocks).where(eq(schema.sequenceBlocks.sequenceId, id)).run();
-      body.blockIds.forEach((blockId: string, index: number) => {
-        tx.insert(schema.sequenceBlocks)
-          .values({ sequenceId: id, blockId, position: index })
-          .run();
-      });
+      await tx.delete(schema.sequenceBlocks).where(eq(schema.sequenceBlocks.sequenceId, id));
+      for (const [index, blockId] of (body.blockIds as string[]).entries()) {
+        await tx.insert(schema.sequenceBlocks).values({ sequenceId: id, blockId, position: index });
+      }
     }
   });
 

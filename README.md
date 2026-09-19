@@ -8,19 +8,22 @@ This is the **Phase 1 (MVP)** slice: static image + video blocks, categories, sc
 
 - **Next.js 16 (App Router, TypeScript)** — admin UI, player rendering, and API (Route Handlers) in one app.
 - **Tailwind CSS 4**
-- **Drizzle ORM** — `better-sqlite3` driver for v1, swappable for `drizzle-orm/node-postgres` on the later scale path.
+- **Drizzle ORM** — `node-postgres` driver, against a **PostgreSQL** database (run via Docker, in dev and in production).
 - **dnd-kit** — sequence builder drag-and-drop.
 - **A separate `worker` process** (Node/TypeScript + `node-cron`) for scheduled polling — see [Architecture](#architecture).
 
-> **Note:** this was originally scaffolded with Prisma, then switched to Drizzle. Drizzle doesn't need to download a native query-engine binary at install time (Prisma does, from `binaries.prisma.sh`), so the whole schema → migration → seed pipeline was generated and verified end-to-end in the sandbox this was built in, including a full `next build`. It's ready to run as-is.
+> **Note:** this was originally scaffolded with Prisma, then Drizzle+SQLite, before landing on Drizzle+Postgres. `better-sqlite3` (a native module) turned out to crash the whole Node process on some machines when its compiled binding didn't match the local Node/CPU architecture — a native-module footgun, not a bug in the app code. Postgres has no such problem: `pg` is pure JS, and running it via Docker means the database itself doesn't depend on what's installed on your machine at all.
 
 ## Local Development
 
+Postgres runs in Docker even in dev — only `web`/`worker` (via `npm run dev` / `npm run worker`) run directly on your machine.
+
 ```bash
+docker compose -f docker-compose.dev.yml up -d   # starts just Postgres, on localhost:5432
 npm install
-cp .env.example .env   # then edit WORDPRESS_BASE_URL / SIGNAGE_WEBHOOK_SECRET as needed
-npm run db:migrate    # applies drizzle/*.sql to create signage.db
-npm run db:seed       # seeds the 5 default categories (PRD §3.5)
+cp .env.example .env   # defaults already point at the docker-compose.dev.yml Postgres
+npm run db:migrate     # applies drizzle/*.sql
+npm run db:seed        # seeds the 5 default categories (PRD §3.5)
 npm run dev
 ```
 
@@ -46,11 +49,11 @@ Next.js app ("web")                    Worker process ("worker")
   Drizzle ORM
        |
        v
-  SQLite (signage.db) — Postgres-ready
+  PostgreSQL ("db" service in Docker)
   /public/uploads — cached & uploaded assets
 ```
 
-Both processes share one database and one assets folder. In Docker Compose that's two named volumes (`signage-data`, `signage-assets`) mounted into both the `web` and `worker` containers. The kiosk browser (Chromium in kiosk mode, pointed at `/player`) runs natively on the host Mac, outside Docker — it needs direct display/AirPlay access.
+Both `web` and `worker` connect to the same Postgres database over the network (the `db` service in Docker Compose) and share one assets folder (the `signage-assets` named volume). The kiosk browser (Chromium in kiosk mode, pointed at `/player`) runs natively on the host Mac, outside Docker — it needs direct display/AirPlay access.
 
 Full rationale for the Next.js + worker split, the data model, WordPress/Pods integration, and the n8n real-time-sync design are in the PRD.
 
@@ -86,8 +89,8 @@ docker load < signage-images.tar.gz && docker compose up -d
 **First-time checklist on the host Mac (any option):**
 1. Install Docker Desktop (or Colima/OrbStack).
 2. Get the compose project onto the machine (A, B, or C above).
-3. Copy a real `.env` over (never commit it).
-4. `docker compose up -d`, confirm `http://localhost:3000/admin` loads.
+3. Copy a real `.env` over, including a real `POSTGRES_PASSWORD` (never commit it).
+4. `docker compose up -d`, confirm `http://localhost:3000/admin` loads. (`db` starts first and `web`/`worker` wait for its healthcheck before starting.)
 5. Point the kiosk browser's launchd agent at `http://localhost:3000/player`.
 6. Add a `launchd` entry to run `docker compose up -d` on boot.
 7. The `web` container runs `drizzle-kit migrate` automatically on startup; run `docker compose exec web npm run db:seed` once if the DB is fresh.
@@ -105,16 +108,17 @@ lib/
   resolve.ts        Sequence -> ordered play-list resolution (PRD §5)
   wordpress.ts      WordPress REST integration (PRD §6)
 db/
-  index.ts          Drizzle client singleton (better-sqlite3)
+  index.ts          Drizzle client singleton (node-postgres)
   schema.ts         Data model + relations (PRD §10)
   seed.ts           Seeds default categories
 drizzle/
   *.sql             Generated migrations (via `npm run db:generate`)
 worker/
   index.ts          Standalone polling/cron process (PRD §11.1)
-Dockerfile           "web" service image
-Dockerfile.worker    "worker" service image
-docker-compose.yml   Two services + shared volumes
+Dockerfile               "web" service image
+Dockerfile.worker        "worker" service image
+docker-compose.yml       Full stack: db + web + worker (production)
+docker-compose.dev.yml   Just Postgres, port-exposed (local dev)
 ```
 
 ## What's Not Built Yet (Phase 2+)

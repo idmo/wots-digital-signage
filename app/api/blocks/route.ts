@@ -45,11 +45,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "asset not found" }, { status: 404 });
   }
 
-  // NOTE: better-sqlite3 transactions run synchronously — no `await` inside
-  // this callback (drizzle's better-sqlite3 driver throws if the callback
-  // returns a promise). Use `.get()`/`.run()` execution methods instead.
-  const blockId = db.transaction((tx) => {
-    const block = tx
+  const blockId = await db.transaction(async (tx) => {
+    const [block] = await tx
       .insert(schema.blocks)
       .values({
         name,
@@ -61,25 +58,20 @@ export async function POST(request: NextRequest) {
         status: "active",
         durationSeconds: type === "static_image" ? durationSeconds ?? (textHeavy ? 18 : 10) : null,
       })
-      .returning()
-      .get();
+      .returning();
 
     if (type === "static_image") {
-      tx.insert(schema.staticImageBlocks)
-        .values({
-          blockId: block.id,
-          imageAssetId: assetId,
-          textHeavy: !!textHeavy,
-        })
-        .run();
+      await tx.insert(schema.staticImageBlocks).values({
+        blockId: block.id,
+        imageAssetId: assetId,
+        textHeavy: !!textHeavy,
+      });
     } else if (type === "video") {
-      tx.insert(schema.videoBlocks)
-        .values({
-          blockId: block.id,
-          videoAssetId: assetId,
-          durationSeconds: asset.durationSeconds ?? 10,
-        })
-        .run();
+      await tx.insert(schema.videoBlocks).values({
+        blockId: block.id,
+        videoAssetId: assetId,
+        durationSeconds: asset.durationSeconds ?? 10,
+      });
     }
 
     return block.id;

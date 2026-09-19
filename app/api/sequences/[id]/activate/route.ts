@@ -6,10 +6,9 @@ import { eq } from "drizzle-orm";
 export async function POST(_request: NextRequest, ctx: RouteContext<"/api/sequences/[id]/activate">) {
   const { id } = await ctx.params;
 
-  // NOTE: better-sqlite3 transactions run synchronously — no `await` inside this callback.
-  db.transaction((tx) => {
-    tx.update(schema.sequences).set({ isLive: false }).where(eq(schema.sequences.isLive, true)).run();
-    tx.update(schema.sequences).set({ isLive: true }).where(eq(schema.sequences.id, id)).run();
+  await db.transaction(async (tx) => {
+    await tx.update(schema.sequences).set({ isLive: false }).where(eq(schema.sequences.isLive, true));
+    await tx.update(schema.sequences).set({ isLive: true }).where(eq(schema.sequences.id, id));
   });
 
   return NextResponse.json({ ok: true });

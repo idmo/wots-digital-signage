@@ -8,14 +8,13 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/sequence
   const body = await request.json();
   const ids: string[] = body.sequenceBlockIds ?? [];
 
-  // NOTE: better-sqlite3 transactions run synchronously — no `await` inside this callback.
-  db.transaction((tx) => {
-    ids.forEach((sequenceBlockId, index) => {
-      tx.update(schema.sequenceBlocks)
+  await db.transaction(async (tx) => {
+    for (const [index, sequenceBlockId] of ids.entries()) {
+      await tx
+        .update(schema.sequenceBlocks)
         .set({ position: index })
-        .where(eq(schema.sequenceBlocks.id, sequenceBlockId))
-        .run();
-    });
+        .where(eq(schema.sequenceBlocks.id, sequenceBlockId));
+    }
   });
 
   const sequence = await db.query.sequences.findFirst({

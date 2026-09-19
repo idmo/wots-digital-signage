@@ -32,13 +32,13 @@ async function pollDataSources() {
 
 async function sweepExpiredBlocks() {
   const now = new Date().toISOString();
-  const result = db
+  const result = await db
     .update(schema.blocks)
     .set({ status: "expired" })
     .where(and(lt(schema.blocks.endDate, now), eq(schema.blocks.status, "active")))
-    .run();
-  if (result.changes > 0) {
-    console.log(`[worker] marked ${result.changes} block(s) expired`);
+    .returning({ id: schema.blocks.id });
+  if (result.length > 0) {
+    console.log(`[worker] marked ${result.length} block(s) expired`);
   }
 }
 

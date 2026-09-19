@@ -1,0 +1,24 @@
+## For local development only: starts just Postgres, exposed on the host
+## so `npm run dev` (running directly on your machine, not in Docker) can
+## connect to it. The full stack (web + worker + db) lives in
+## docker-compose.yml, for the production deploy on the shop's Mac.
+##
+## Usage:
+##   docker compose -f docker-compose.dev.yml up -d
+##   npm run db:migrate && npm run db:seed
+##   npm run dev
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: signage
+      POSTGRES_PASSWORD: signage
+      POSTGRES_DB: signage
+    volumes:
+      - signage-dev-db-data:/var/lib/postgresql/data
+
+volumes:
+  signage-dev-db-data:

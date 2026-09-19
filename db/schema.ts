@@ -1,8 +1,10 @@
-// Digital Signage — Drizzle schema (SQLite, PRD §10 "Data Model")
-// Swap to drizzle-orm/pg-core + a Postgres client for the scale path (PRD §11.4).
+// Digital Signage — Drizzle schema (PostgreSQL, PRD §10 "Data Model")
+// Dates are stored as ISO-string `text` columns (not native `timestamp`)
+// so the app-level code (which does new Date(x).toISOString() / string
+// comparisons throughout) didn't need to change when this moved off SQLite.
 
-import { relations, sql } from "drizzle-orm";
-import { sqliteTable, text, integer, index, unique } from "drizzle-orm/sqlite-core";
+import { relations } from "drizzle-orm";
+import { pgTable, text, integer, boolean, index, unique } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 
 const id = () =>
@@ -13,14 +15,14 @@ const id = () =>
 const timestamps = {
   createdAt: text("created_at")
     .notNull()
-    .default(sql`(current_timestamp)`),
+    .$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at")
     .notNull()
-    .default(sql`(current_timestamp)`)
+    .$defaultFn(() => new Date().toISOString())
     .$onUpdate(() => new Date().toISOString()),
 };
 
-export const categories = sqliteTable("categories", {
+export const categories = pgTable("categories", {
   id: id(),
   name: text("name").notNull().unique(),
   defaultTemplateId: text("default_template_id"),
@@ -29,7 +31,7 @@ export const categories = sqliteTable("categories", {
   ...timestamps,
 });
 
-export const templates = sqliteTable("templates", {
+export const templates = pgTable("templates", {
   id: id(),
   name: text("name").notNull(),
   categoryId: text("category_id"),
@@ -40,7 +42,7 @@ export const templates = sqliteTable("templates", {
   ...timestamps,
 });
 
-export const dataSources = sqliteTable("data_sources", {
+export const dataSources = pgTable("data_sources", {
   id: id(),
   name: text("name").notNull(),
   // wordpress_events | wordpress_pods | wordpress_custom_rest | csv | manual
@@ -52,7 +54,7 @@ export const dataSources = sqliteTable("data_sources", {
   ...timestamps,
 });
 
-export const blocks = sqliteTable(
+export const blocks = pgTable(
   "blocks",
   {
     id: id(),
@@ -66,7 +68,7 @@ export const blocks = sqliteTable(
     status: text("status").notNull().default("draft"),
     startDate: text("start_date")
       .notNull()
-      .default(sql`(current_timestamp)`),
+      .$defaultFn(() => new Date().toISOString()),
     endDate: text("end_date"),
     durationSeconds: integer("duration_seconds"),
     // cover | contain | contain_blurred
@@ -76,17 +78,17 @@ export const blocks = sqliteTable(
   (table) => [index("blocks_status_idx").on(table.status), index("blocks_category_idx").on(table.categoryId)]
 );
 
-export const staticImageBlocks = sqliteTable("static_image_blocks", {
+export const staticImageBlocks = pgTable("static_image_blocks", {
   blockId: text("block_id")
     .primaryKey()
     .references(() => blocks.id, { onDelete: "cascade" }),
   imageAssetId: text("image_asset_id")
     .notNull()
     .references(() => assets.id),
-  textHeavy: integer("text_heavy", { mode: "boolean" }).notNull().default(false),
+  textHeavy: boolean("text_heavy").notNull().default(false),
 });
 
-export const videoBlocks = sqliteTable("video_blocks", {
+export const videoBlocks = pgTable("video_blocks", {
   blockId: text("block_id")
     .primaryKey()
     .references(() => blocks.id, { onDelete: "cascade" }),
@@ -96,7 +98,7 @@ export const videoBlocks = sqliteTable("video_blocks", {
   durationSeconds: integer("duration_seconds").notNull(),
 });
 
-export const dynamicBlocks = sqliteTable("dynamic_blocks", {
+export const dynamicBlocks = pgTable("dynamic_blocks", {
   blockId: text("block_id")
     .primaryKey()
     .references(() => blocks.id, { onDelete: "cascade" }),
@@ -114,14 +116,14 @@ export const dynamicBlocks = sqliteTable("dynamic_blocks", {
   fieldOverrides: text("field_overrides"),
 });
 
-export const sequences = sqliteTable("sequences", {
+export const sequences = pgTable("sequences", {
   id: id(),
   name: text("name").notNull(),
-  isLive: integer("is_live", { mode: "boolean" }).notNull().default(false),
+  isLive: boolean("is_live").notNull().default(false),
   ...timestamps,
 });
 
-export const sequenceBlocks = sqliteTable(
+export const sequenceBlocks = pgTable(
   "sequence_blocks",
   {
     id: id(),
@@ -132,7 +134,7 @@ export const sequenceBlocks = sqliteTable(
       .notNull()
       .references(() => blocks.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
-    pinned: integer("pinned", { mode: "boolean" }).notNull().default(true),
+    pinned: boolean("pinned").notNull().default(true),
   },
   (table) => [
     unique("sequence_blocks_sequence_block_unique").on(table.sequenceId, table.blockId),
@@ -140,7 +142,7 @@ export const sequenceBlocks = sqliteTable(
   ]
 );
 
-export const assets = sqliteTable(
+export const assets = pgTable(
   "assets",
   {
   id: id(),
@@ -159,13 +161,13 @@ export const assets = sqliteTable(
   sourceProductId: text("source_product_id"),
     uploadedAt: text("uploaded_at")
       .notNull()
-      .default(sql`(current_timestamp)`),
+      .$defaultFn(() => new Date().toISOString()),
     cachedAt: text("cached_at"),
   },
   (table) => [index("assets_checksum_idx").on(table.checksum)]
 );
 
-export const syncLogs = sqliteTable(
+export const syncLogs = pgTable(
   "sync_logs",
   {
     id: id(),
@@ -174,7 +176,7 @@ export const syncLogs = sqliteTable(
       .references(() => dataSources.id, { onDelete: "cascade" }),
     runAt: text("run_at")
       .notNull()
-      .default(sql`(current_timestamp)`),
+      .$defaultFn(() => new Date().toISOString()),
     // success | error
     status: text("status").notNull(),
     itemsFetched: integer("items_fetched").notNull().default(0),
