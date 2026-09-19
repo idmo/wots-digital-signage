@@ -44,11 +44,25 @@ export async function fetchWordPressEvents(baseUrl: string, perPage = 20): Promi
   return data.events ?? [];
 }
 
-/** Best available image URL for an event, preferring "medium" then "large", falling back to the raw url. */
+/**
+ * Best available image URL for an event. Prefers the original upload
+ * (`image.url`) — WordPress's generated sizes top out around 2048px on the
+ * long edge and "medium" is only ~300px wide, which looked visibly
+ * pixelated stretched across a third or two-thirds of a signage display.
+ * Falls back to the largest generated size only if the original is missing.
+ */
 export function bestEventImageUrl(event: WpEvent): string | null {
   const image = event.image;
   if (!image || typeof image !== "object") return null;
-  return image.sizes?.medium?.url ?? image.sizes?.large?.url ?? image.url ?? null;
+  return (
+    image.url ??
+    image.sizes?.["2048x2048"]?.url ??
+    image.sizes?.["1536x1536"]?.url ??
+    image.sizes?.large?.url ??
+    image.sizes?.medium_large?.url ??
+    image.sizes?.medium?.url ??
+    null
+  );
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
