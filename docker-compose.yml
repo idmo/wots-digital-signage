@@ -1,0 +1,38 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "file:/app/data/signage.db"
+      WORDPRESS_BASE_URL: ${WORDPRESS_BASE_URL:-https://www.wordonthestreetbooks.com}
+      SIGNAGE_WEBHOOK_SECRET: ${SIGNAGE_WEBHOOK_SECRET:?set a real secret in .env}
+    volumes:
+      - signage-data:/app/data
+      - signage-assets:/app/public/uploads
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      DATABASE_URL: "file:/app/data/signage.db"
+      WEB_BASE_URL: "http://web:3000"
+      WORDPRESS_BASE_URL: ${WORDPRESS_BASE_URL:-https://www.wordonthestreetbooks.com}
+      SYNC_POLL_CRON: ${SYNC_POLL_CRON:-*/30 * * * *}
+      EXPIRE_SWEEP_CRON: ${EXPIRE_SWEEP_CRON:-*/5 * * * *}
+    volumes:
+      - signage-data:/app/data
+      - signage-assets:/app/public/uploads
+
+volumes:
+  # Bind these to host paths instead of named volumes if you want the
+  # DB/assets easy to find for filesystem-level backups (PRD §11.4/§11.5).
+  signage-data:
+  signage-assets:

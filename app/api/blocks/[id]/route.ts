@@ -1,0 +1,55 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db, schema } from "@/db";
+import { eq } from "drizzle-orm";
+
+export async function GET(_request: NextRequest, ctx: RouteContext<"/api/blocks/[id]">) {
+  const { id } = await ctx.params;
+  const block = await db.query.blocks.findFirst({
+    where: eq(schema.blocks.id, id),
+    with: {
+      category: true,
+      staticImage: { with: { imageAsset: true } },
+      video: { with: { videoAsset: true } },
+    },
+  });
+  if (!block) return NextResponse.json({ error: "not found" }, { status: 404 });
+  return NextResponse.json(block);
+}
+
+export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[id]">) {
+  const { id } = await ctx.params;
+  const body = await request.json();
+  const { name, categoryId, fitMode, startDate, endDate, durationSeconds, status } = body;
+
+  await db
+    .update(schema.blocks)
+    .set({
+      ...(name !== undefined ? { name } : {}),
+      ...(categoryId !== undefined ? { categoryId } : {}),
+      ...(fitMode !== undefined ? { fitMode } : {}),
+      ...(startDate !== undefined
+        ? { startDate: startDate ? new Date(startDate).toISOString() : new Date().toISOString() }
+        : {}),
+      ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate).toISOString() : null } : {}),
+      ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+      ...(status !== undefined ? { status } : {}),
+    })
+    .where(eq(schema.blocks.id, id));
+
+  const block = await db.query.blocks.findFirst({
+    where: eq(schema.blocks.id, id),
+    with: {
+      category: true,
+      staticImage: { with: { imageAsset: true } },
+      video: { with: { videoAsset: true } },
+    },
+  });
+
+  return NextResponse.json(block);
+}
+
+export async function DELETE(_request: NextRequest, ctx: RouteContext<"/api/blocks/[id]">) {
+  const { id } = await ctx.params;
+  await db.delete(schema.blocks).where(eq(schema.blocks.id, id));
+  return NextResponse.json({ ok: true });
+}
