@@ -140,17 +140,10 @@ export default function PlayerPage() {
 
 function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").FormattedEvent }) {
   return (
-    // The player stage is already 16:9 (a signage display); text on the
-    // left 2/3, featured image on the right 1/3 (per spec).
-    <div className="w-full h-full bg-white flex">
-      <div className="w-2/3 h-full flex flex-col justify-center px-12 py-10 gap-4">
-        <div className="text-2xl font-medium text-neutral-600">
-          {event.weekday}, {event.date} · {event.timeRange}
-        </div>
-        <h1 className="text-6xl font-bold leading-tight text-neutral-900">{event.title}</h1>
-        {event.excerpt && <p className="text-2xl text-neutral-700 line-clamp-5">{event.excerpt}</p>}
-      </div>
-      <div className="w-1/3 h-full bg-neutral-100">
+    // The player stage is already 16:9 (a signage display); featured image
+    // across the top 2/3, title / date+time / excerpt in the bottom 1/3.
+    <div className="w-full h-full bg-white flex flex-col">
+      <div className="h-2/3 w-full bg-neutral-100 shrink-0">
         {event.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover" />
@@ -159,6 +152,13 @@ function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").Formatt
             No image
           </div>
         )}
+      </div>
+      <div className="h-1/3 w-full flex flex-col justify-center px-12 py-4 gap-2 min-h-0 overflow-hidden">
+        <h1 className="text-4xl font-bold leading-tight text-neutral-900">{event.title}</h1>
+        <div className="text-xl font-medium text-neutral-600">
+          {event.weekday}, {event.date} · {event.timeRange}
+        </div>
+        {event.excerpt && <p className="text-lg text-neutral-700 line-clamp-2">{event.excerpt}</p>}
       </div>
     </div>
   );
