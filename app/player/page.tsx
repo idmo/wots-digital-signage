@@ -142,7 +142,8 @@ function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").Formatt
   return (
     // Featured image fills the whole stage as a background; a translucent
     // panel with the event details spans the full width across the bottom
-    // quarter of the stage, sliding up from off-screen.
+    // of the stage, sliding up from off-screen. It's at least a quarter of
+    // the stage's height, but grows taller to fit a longer excerpt.
     <div className="relative w-full h-full bg-black overflow-hidden">
       {event.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -154,14 +155,14 @@ function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").Formatt
       )}
       <div
         key={event.id}
-        className="event-slide-in absolute left-0 bottom-0 w-full h-1/4 flex flex-col justify-center gap-2 px-12 py-4 overflow-hidden"
+        className="event-slide-in absolute left-0 bottom-0 w-full min-h-[25%] max-h-full flex flex-col justify-center gap-2 px-12 py-6 overflow-hidden"
         style={{ backgroundColor: "rgba(255,255,255,0.85)" }}
       >
         <h1 className="text-[4.5rem] font-bold leading-tight text-neutral-900 line-clamp-1">{event.title}</h1>
         <div className="text-[3rem] font-medium text-neutral-700">
           {event.weekday}, {event.date} · {event.timeRange}
         </div>
-        {event.excerpt && <p className="text-[2.625rem] text-neutral-800 line-clamp-1">{event.excerpt}</p>}
+        {event.excerpt && <p className="text-[2.625rem] text-neutral-800 leading-snug">{event.excerpt}</p>}
       </div>
     </div>
   );
