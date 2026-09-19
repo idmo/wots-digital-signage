@@ -52,15 +52,18 @@ export default function PlayerPage() {
     setEventIndex(0);
   }, [index]);
 
+  const isEventsCarousel = current?.type === "wordpress_events" && current.wordpressEvents?.mode === "carousel";
+
   // Advance to the next item after the current one's duration — except for
   // video, which must always play to its actual end (the `onEnded` handler
   // below advances it) rather than a fixed timer that could cut it short
-  // (e.g. if the stored duration is only an estimate); and wordpress_events,
-  // which runs its own internal per-event carousel (handled below) before
-  // advancing to the next sequence item.
+  // (e.g. if the stored duration is only an estimate); and an events
+  // carousel, which runs its own internal per-event timer (handled below)
+  // before advancing to the next sequence item. A "list" mode events block
+  // has no internal cycling, so it advances here like a static block.
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current || current.type === "video" || current.type === "wordpress_events") return;
+    if (!current || current.type === "video" || isEventsCarousel) return;
 
     advanceTimer.current = setTimeout(() => {
       setIndex((i) => (items.length ? (i + 1) % items.length : 0));
@@ -69,14 +72,14 @@ export default function PlayerPage() {
     return () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
     };
-  }, [current, items.length]);
+  }, [current, isEventsCarousel, items.length]);
 
   // Internal event carousel: cycle through this block's events every
   // `perItemDuration` (durationSeconds) seconds, then advance to the next
   // block in the sequence once all events have been shown.
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    if (!current || current.type !== "wordpress_events" || !current.wordpressEvents) return;
+    if (!current || !isEventsCarousel || !current.wordpressEvents) return;
 
     const events = current.wordpressEvents.events;
     advanceTimer.current = setTimeout(() => {
@@ -90,7 +93,7 @@ export default function PlayerPage() {
     return () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
     };
-  }, [current, eventIndex, items.length]);
+  }, [current, isEventsCarousel, eventIndex, items.length]);
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
@@ -123,8 +126,12 @@ export default function PlayerPage() {
           />
         )}
 
-        {current?.type === "wordpress_events" && current.wordpressEvents && (
+        {current?.type === "wordpress_events" && current.wordpressEvents?.mode === "carousel" && (
           <EventsCarouselSlide event={current.wordpressEvents.events[eventIndex]} />
+        )}
+
+        {current?.type === "wordpress_events" && current.wordpressEvents?.mode === "list" && (
+          <EventsListSlide label={current.wordpressEvents.listLabel} events={current.wordpressEvents.events} />
         )}
       </div>
     </div>
@@ -152,6 +159,31 @@ function EventsCarouselSlide({ event }: { event: import("@/lib/resolve").Formatt
             No image
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function EventsListSlide({
+  label,
+  events,
+}: {
+  label: string | null;
+  events: import("@/lib/resolve").FormattedEvent[];
+}) {
+  return (
+    <div className="w-full h-full bg-white flex flex-col px-16 py-12">
+      {label && <h1 className="text-5xl font-bold text-neutral-900 mb-8 shrink-0">{label}</h1>}
+      <div className="flex-1 flex flex-col justify-center gap-5 min-h-0 overflow-hidden">
+        {events.map((event) => (
+          <div key={event.id} className="flex items-baseline gap-8 border-b border-neutral-200 pb-4">
+            <div className="text-xl text-neutral-500 w-72 shrink-0">
+              {event.weekday}, {event.date} · {event.timeRange}
+            </div>
+            <div className="text-3xl font-semibold text-neutral-900 truncate">{event.title}</div>
+          </div>
+        ))}
+        {events.length === 0 && <p className="text-xl text-neutral-400">No upcoming events.</p>}
       </div>
     </div>
   );

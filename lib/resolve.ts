@@ -23,10 +23,12 @@ export type ResolvedItem = {
   // Rendering payload — shape depends on block type.
   staticImage?: { url: string };
   video?: { url: string };
-  // For wordpress_events, `durationSeconds` is the per-event duration —
-  // the player runs its own internal carousel over `events` before
-  // advancing to the next item in the sequence.
-  wordpressEvents?: { listLabel: string | null; events: FormattedEvent[] };
+  // For wordpress_events: in "carousel" mode, `durationSeconds` is the
+  // per-event duration and the player runs its own internal carousel over
+  // `events` before advancing to the next item in the sequence. In "list"
+  // mode, `durationSeconds` is how long the whole list is shown before
+  // advancing (like a static block).
+  wordpressEvents?: { mode: "carousel" | "list"; listLabel: string | null; events: FormattedEvent[] };
 };
 
 function stripHtml(html: string): string {
@@ -140,6 +142,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
         const events = rawEvents.slice(0, block.dynamic.maxItems).map(formatEvent);
         if (events.length === 0) continue;
 
+        const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
         items.push({
           sequenceBlockId: sb.id,
           blockId: block.id,
@@ -148,7 +151,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           type: "wordpress_events",
           fitMode: block.fitMode,
           durationSeconds: block.dynamic.perItemDuration,
-          wordpressEvents: { listLabel: block.dynamic.listLabel, events },
+          wordpressEvents: { mode, listLabel: block.dynamic.listLabel, events },
         });
       } catch {
         // Data source unreachable — skip this block for this cycle rather

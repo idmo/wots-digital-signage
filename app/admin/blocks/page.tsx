@@ -42,6 +42,8 @@ export default function BlockLibraryPage() {
   const [error, setError] = useState("");
 
   const [eventsDataSourceId, setEventsDataSourceId] = useState("");
+  const [eventsDisplayMode, setEventsDisplayMode] = useState<"carousel" | "list">("carousel");
+  const [eventsListLabel, setEventsListLabel] = useState("");
   const [eventsMaxItems, setEventsMaxItems] = useState("10");
   const [eventsPerItemDuration, setEventsPerItemDuration] = useState("10");
 
@@ -127,11 +129,12 @@ export default function BlockLibraryPage() {
       return;
     }
 
-    // WordPress Events Carousel
+    // WordPress Events
     const missing: string[] = [];
     if (!name.trim()) missing.push("an internal label");
     if (!categoryId) missing.push("a category");
     if (!eventsDataSourceId) missing.push("a WordPress events data source");
+    if (eventsDisplayMode === "list" && !eventsListLabel.trim()) missing.push("a label for the list");
     if (missing.length) {
       setError(`Add ${missing.join(", ")} before submitting.`);
       return;
@@ -147,7 +150,8 @@ export default function BlockLibraryPage() {
           categoryId,
           type: "dynamic_template",
           dataSourceId: eventsDataSourceId,
-          displayMode: "carousel",
+          displayMode: eventsDisplayMode,
+          listLabel: eventsDisplayMode === "list" ? eventsListLabel : null,
           maxItems: Number(eventsMaxItems) || 10,
           perItemDuration: Number(eventsPerItemDuration) || 10,
           endDate: endDate || null,
@@ -159,6 +163,7 @@ export default function BlockLibraryPage() {
       }
       setName("");
       setEndDate("");
+      setEventsListLabel("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -196,7 +201,7 @@ export default function BlockLibraryPage() {
               blockKind === "wordpress_events" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
             }`}
           >
-            WordPress Events Carousel
+            WordPress Events
           </button>
         </div>
 
@@ -206,17 +211,12 @@ export default function BlockLibraryPage() {
           placeholder="Internal label (e.g. Fall Sale Poster)"
           className="border rounded px-3 py-2 text-sm w-full"
         />
-        <select
+        <CategorySelect
+          categories={categories}
           value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-          className="border rounded px-3 py-2 text-sm w-full"
-        >
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          onChange={setCategoryId}
+          onCreated={(c) => setCategories((prev) => [...prev, c])}
+        />
 
         {blockKind === "upload" ? (
           <>
@@ -254,6 +254,40 @@ export default function BlockLibraryPage() {
                 ))}
               </select>
             )}
+
+            <div className="flex gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setEventsDisplayMode("carousel")}
+                className={`px-3 py-1.5 rounded border ${
+                  eventsDisplayMode === "carousel" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                }`}
+              >
+                Carousel
+              </button>
+              <button
+                type="button"
+                onClick={() => setEventsDisplayMode("list")}
+                className={`px-3 py-1.5 rounded border ${
+                  eventsDisplayMode === "list" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                }`}
+              >
+                List
+              </button>
+            </div>
+
+            {eventsDisplayMode === "list" && (
+              <label className="block text-sm">
+                List label
+                <input
+                  value={eventsListLabel}
+                  onChange={(e) => setEventsListLabel(e.target.value)}
+                  placeholder="e.g. Upcoming Events, or Coming this October"
+                  className="border rounded px-3 py-2 text-sm w-full mt-1"
+                />
+              </label>
+            )}
+
             <label className="block text-sm">
               Number of events to display
               <input
@@ -266,7 +300,7 @@ export default function BlockLibraryPage() {
               />
             </label>
             <label className="block text-sm">
-              Seconds per event in the carousel
+              {eventsDisplayMode === "list" ? "Seconds to display the list" : "Seconds per event in the carousel"}
               <input
                 type="number"
                 min={1}
@@ -314,7 +348,9 @@ export default function BlockLibraryPage() {
                 {b.type === "dynamic_template" && b.dynamic && (
                   <div className="text-center px-2">
                     <div className="text-2xl">🗓️</div>
-                    <div className="text-xs text-neutral-500 mt-1">Events Carousel</div>
+                    <div className="text-xs text-neutral-500 mt-1">
+                      {b.dynamic.displayMode === "list" ? "Events List" : "Events Carousel"}
+                    </div>
                   </div>
                 )}
               </div>
@@ -337,7 +373,11 @@ export default function BlockLibraryPage() {
                   {b.type === "video"
                     ? `${b.video?.durationSeconds ?? "?"}s (full length)`
                     : b.type === "dynamic_template"
-                    ? `${b.dynamic?.maxItems ?? "?"} events · ${b.dynamic?.perItemDuration ?? "?"}s each`
+                    ? b.dynamic?.displayMode === "list"
+                      ? `"${b.dynamic?.listLabel ?? ""}" · ${b.dynamic?.maxItems ?? "?"} events · ${
+                          b.dynamic?.perItemDuration ?? "?"
+                        }s`
+                      : `${b.dynamic?.maxItems ?? "?"} events · ${b.dynamic?.perItemDuration ?? "?"}s each`
                     : `${b.durationSeconds ?? b.category.defaultDurationSeconds}s`}
                 </div>
                 {b.note && (
@@ -355,6 +395,7 @@ export default function BlockLibraryPage() {
           block={editingBlock}
           categories={categories}
           dataSources={dataSources}
+          onCategoryCreated={(c) => setCategories((prev) => [...prev, c])}
           onClose={() => setEditingBlock(null)}
           onSaved={async () => {
             setEditingBlock(null);
@@ -374,6 +415,7 @@ function EditBlockModal({
   block,
   categories,
   dataSources,
+  onCategoryCreated,
   onClose,
   onSaved,
   onDeleted,
@@ -381,6 +423,7 @@ function EditBlockModal({
   block: Block;
   categories: Category[];
   dataSources: DataSource[];
+  onCategoryCreated: (category: Category) => void;
   onClose: () => void;
   onSaved: () => void;
   onDeleted: () => void;
@@ -392,6 +435,10 @@ function EditBlockModal({
     block.durationSeconds != null ? String(block.durationSeconds) : ""
   );
   const [eventsDataSourceId, setEventsDataSourceId] = useState(block.dynamic?.dataSourceId ?? "");
+  const [eventsDisplayMode, setEventsDisplayMode] = useState<"carousel" | "list">(
+    block.dynamic?.displayMode === "list" ? "list" : "carousel"
+  );
+  const [eventsListLabel, setEventsListLabel] = useState(block.dynamic?.listLabel ?? "");
   const [eventsMaxItems, setEventsMaxItems] = useState(String(block.dynamic?.maxItems ?? 10));
   const [eventsPerItemDuration, setEventsPerItemDuration] = useState(
     String(block.dynamic?.perItemDuration ?? 10)
@@ -423,6 +470,8 @@ function EditBlockModal({
           ...(block.type === "dynamic_template"
             ? {
                 dataSourceId: eventsDataSourceId,
+                displayMode: eventsDisplayMode,
+                listLabel: eventsDisplayMode === "list" ? eventsListLabel : null,
                 maxItems: Number(eventsMaxItems) || 10,
                 perItemDuration: Number(eventsPerItemDuration) || 10,
               }
@@ -480,17 +529,9 @@ function EditBlockModal({
 
         <label className="block text-sm">
           Category
-          <select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            className="border rounded px-3 py-2 text-sm w-full mt-1"
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <div className="mt-1">
+            <CategorySelect categories={categories} value={categoryId} onChange={setCategoryId} onCreated={onCategoryCreated} />
+          </div>
         </label>
 
         {block.type === "static_image" && (
@@ -530,6 +571,39 @@ function EditBlockModal({
                 ))}
               </select>
             </label>
+            <div className="flex gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setEventsDisplayMode("carousel")}
+                className={`px-3 py-1.5 rounded border ${
+                  eventsDisplayMode === "carousel" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                }`}
+              >
+                Carousel
+              </button>
+              <button
+                type="button"
+                onClick={() => setEventsDisplayMode("list")}
+                className={`px-3 py-1.5 rounded border ${
+                  eventsDisplayMode === "list" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+                }`}
+              >
+                List
+              </button>
+            </div>
+
+            {eventsDisplayMode === "list" && (
+              <label className="block text-sm">
+                List label
+                <input
+                  value={eventsListLabel}
+                  onChange={(e) => setEventsListLabel(e.target.value)}
+                  placeholder="e.g. Upcoming Events, or Coming this October"
+                  className="border rounded px-3 py-2 text-sm w-full mt-1"
+                />
+              </label>
+            )}
+
             <label className="block text-sm">
               Number of events to display
               <input
@@ -542,7 +616,7 @@ function EditBlockModal({
               />
             </label>
             <label className="block text-sm">
-              Seconds per event in the carousel
+              {eventsDisplayMode === "list" ? "Seconds to display the list" : "Seconds per event in the carousel"}
               <input
                 type="number"
                 min={1}
@@ -612,6 +686,118 @@ function EditBlockModal({
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function CategorySelect({
+  categories,
+  value,
+  onChange,
+  onCreated,
+}: {
+  categories: Category[];
+  value: string;
+  onChange: (id: string) => void;
+  onCreated: (category: Category) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState("#4f46e5");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const createCategory = async () => {
+    if (!newName.trim()) {
+      setError("Give the category a name.");
+      return;
+    }
+    setCreating(true);
+    setError("");
+    try {
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName, color: newColor, defaultDurationSeconds: 10 }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Couldn't create category (${res.status})`);
+      }
+      const category = await res.json();
+      onCreated(category);
+      onChange(category.id);
+      setAdding(false);
+      setNewName("");
+      setNewColor("#4f46e5");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div>
+      <select
+        value={value}
+        onChange={(e) => {
+          if (e.target.value === "__new__") {
+            setAdding(true);
+          } else {
+            onChange(e.target.value);
+          }
+        }}
+        className="border rounded px-3 py-2 text-sm w-full"
+      >
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+        <option value="__new__">+ Add new category…</option>
+      </select>
+
+      {adding && (
+        <div className="mt-2 border rounded p-3 bg-neutral-50 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Category name"
+              className="border rounded px-2 py-1.5 text-sm flex-1"
+              autoFocus
+            />
+            <input
+              type="color"
+              value={newColor}
+              onChange={(e) => setNewColor(e.target.value)}
+              className="h-8 w-10 border rounded shrink-0"
+            />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={createCategory}
+              disabled={creating}
+              className="bg-indigo-600 text-white rounded px-3 py-1.5 text-xs disabled:opacity-50"
+            >
+              {creating ? "Adding…" : "Add category"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(false);
+                setError("");
+              }}
+              className="text-xs text-neutral-500 hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
