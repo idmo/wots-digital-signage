@@ -19,8 +19,21 @@ export type ContentElementDef = {
 // back from that WordPress REST endpoint (see lib/wordpress.ts), reshaped
 // into named, typed pieces a region can hold. Extending resolveElements()
 // in lib/resolve.ts is how a new key here gets a real value at render time.
+// Every data source type also offers this one — the block's own "Name"
+// field (set once, in the Block Library), not anything from WordPress.
+// Same value on every item, so it reads as a persistent heading — drop it
+// in a top region for a heading, or a bottom one for a footer/attribution
+// line.
+const BLOCK_NAME_ELEMENT: ContentElementDef = {
+  key: "block_name",
+  label: "Block Name",
+  type: "text",
+  hint: "The block's own Name — same on every item, e.g. a heading",
+};
+
 export const CONTENT_ELEMENTS: Record<DataSourceKind, ContentElementDef[]> = {
   wordpress_events: [
+    BLOCK_NAME_ELEMENT,
     { key: "featured_image", label: "Featured Image", type: "image" },
     { key: "title", label: "Title", type: "text" },
     { key: "date_time", label: "Date & Time", type: "text", hint: "Weekday, date, time range" },
@@ -29,6 +42,7 @@ export const CONTENT_ELEMENTS: Record<DataSourceKind, ContentElementDef[]> = {
     { key: "qr_code", label: "QR Code", type: "qr", hint: "Links to the event's page" },
   ],
   wordpress_bulletin_board: [
+    BLOCK_NAME_ELEMENT,
     { key: "featured_image", label: "Featured Image", type: "image" },
     { key: "title", label: "Title", type: "text" },
     { key: "organization", label: "Organization", type: "text", hint: "Custom field" },
@@ -36,6 +50,7 @@ export const CONTENT_ELEMENTS: Record<DataSourceKind, ContentElementDef[]> = {
     { key: "qr_code", label: "QR Code", type: "qr", hint: "Links to the posting's website" },
   ],
   wordpress_featured_readers: [
+    BLOCK_NAME_ELEMENT,
     { key: "book_cover", label: "Book Cover", type: "image" },
     { key: "book_title", label: "Book Title", type: "text" },
     { key: "book_author", label: "Author", type: "text" },

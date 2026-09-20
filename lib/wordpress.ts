@@ -184,6 +184,7 @@ export function isBulletinBoardItemEligible(item: WpBulletinBoardItem, now: Date
 export type WpFeaturedReaderEntry = {
   id: number; // the signage_recommendation post ID
   reader: {
+    id: number; // the signage_reader post ID — used to group a reader's recommendations together
     name: string;
     photo_url: string | null;
   };
@@ -199,7 +200,10 @@ export type WpFeaturedReaderEntry = {
 /**
  * `period` is "current" (the default — resolved server-side against
  * WordPress's own clock/timezone so the signage backend never has to
- * compute "this month" itself) or a pinned `YYYY-MM` Feature Period slug.
+ * compute "this month" itself) or a pinned free-text month/year, e.g.
+ * "September 2025" — matched, loosely, against each Reader's own
+ * "Featured Month and Year" field (see docs/featured-readers-endpoint.php's
+ * signage_parse_month_year).
  */
 export async function fetchFeaturedReaders(
   baseUrl: string,

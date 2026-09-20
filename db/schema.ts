@@ -126,6 +126,11 @@ export const dynamicBlocks = pgTable("dynamic_blocks", {
   perItemDuration: integer("per_item_duration").notNull().default(10),
   maxItems: integer("max_items").notNull().default(20),
   listLabel: text("list_label"),
+  // Featured Readers only: free-text "Month Year" (e.g. "September 2025")
+  // matched — normalized, on the WordPress side — against each Reader's own
+  // "Featured Month and Year" field. Null/blank = auto-resolve to whatever
+  // month it currently is, same as before this was pinnable per block.
+  featuredMonthYear: text("featured_month_year"),
   fieldOverrides: text("field_overrides"),
   // Built-in WordPress renderers (Events, Bulletin Board): a full-bleed
   // background image behind a padded, tinted text panel, plus each item's

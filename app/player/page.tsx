@@ -186,7 +186,7 @@ export default function PlayerPage() {
         {current?.type === "featured_readers" && current.featuredReaders?.mode === "list" && (
           <FeaturedReaderListSlide
             label={current.featuredReaders.listLabel}
-            readers={current.featuredReaders.readers}
+            readerGroups={current.featuredReaders.readerGroups}
             panel={current.featuredReaders}
           />
         )}
@@ -360,9 +360,11 @@ function ElementRenderer({
   }
 
   // text — size/color by convention: title elements read large & titleColor,
-  // date/org "meta" elements read medium & metaColor, everything else body.
+  // date/org/block-name "meta" elements read medium & metaColor, everything
+  // else body. block_name reads as meta rather than title so it doesn't
+  // visually compete with the item's own title when both are on screen.
   const isTitle = elementKey === "title";
-  const isMeta = elementKey === "date_time" || elementKey === "organization";
+  const isMeta = elementKey === "date_time" || elementKey === "organization" || elementKey === "block_name";
   return (
     <p
       className={isTitle ? "text-[3.5rem] font-bold leading-tight" : isMeta ? "text-[2rem] font-medium" : "text-2xl leading-snug"}
@@ -581,13 +583,18 @@ function FeaturedReaderSlide({
   );
 }
 
+/** The "list of lists": a list of featured readers (usually just one, but
+ * more than one can be tagged for the same period), each with its own
+ * sub-list of the book(s) they recommended — a reader with several
+ * recommendations gets one header row and one row per book, rather than
+ * repeating their name for every book. */
 function FeaturedReaderListSlide({
   label,
-  readers,
+  readerGroups,
   panel,
 }: {
   label: string | null;
-  readers: import("@/lib/resolve").FormattedFeaturedReader[];
+  readerGroups: import("@/lib/resolve").FormattedFeaturedReaderGroup[];
   panel: DynamicPanelStyle;
 }) {
   return (
@@ -597,19 +604,33 @@ function FeaturedReaderListSlide({
           {label}
         </h1>
       )}
-      <div className="flex-1 flex flex-col justify-center gap-5 min-h-0 overflow-hidden">
-        {readers.map((reader) => (
-          <div key={reader.id} className="flex items-baseline gap-8 border-b border-white/30 pb-4">
-            <div className="text-xl w-72 shrink-0" style={{ color: panel.metaColor }}>
-              {reader.readerName}
-            </div>
-            <div className="text-3xl font-semibold truncate" style={{ color: panel.titleColor }}>
-              {reader.bookTitle}
-              {reader.bookAuthor && <span className="font-normal"> — {reader.bookAuthor}</span>}
+      <div className="flex-1 flex flex-col justify-center gap-8 min-h-0 overflow-hidden">
+        {readerGroups.map((group) => (
+          <div key={group.readerId} className="flex items-start gap-5">
+            {group.readerPhotoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={group.readerPhotoUrl}
+                alt={group.readerName}
+                className="w-14 h-14 rounded-full object-cover shrink-0 mt-1"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-2xl font-medium mb-2" style={{ color: panel.metaColor }}>
+                {group.readerName}
+              </div>
+              <div className="flex flex-col gap-2">
+                {group.recommendations.map((reader) => (
+                  <div key={reader.id} className="text-3xl font-semibold truncate border-b border-white/30 pb-2" style={{ color: panel.titleColor }}>
+                    {reader.bookTitle}
+                    {reader.bookAuthor && <span className="font-normal"> — {reader.bookAuthor}</span>}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ))}
-        {readers.length === 0 && <p className="text-xl text-white/70">No Featured Readers this month.</p>}
+        {readerGroups.length === 0 && <p className="text-xl text-white/70">No Featured Readers this month.</p>}
       </div>
     </DynamicPanel>
   );

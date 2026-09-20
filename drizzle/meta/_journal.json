@@ -43,6 +43,13 @@
       "when": 1789960000000,
       "tag": "0005_templates_layout_builder",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789970000000,
+      "tag": "0006_featured_month_year",
+      "breakpoints": true
     }
   ]
 }

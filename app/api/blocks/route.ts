@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
  * dynamic_template (built-in WordPress Events Carousel — PRD §3.4/§6.8):
  *   { name, categoryId, type: "dynamic_template", dataSourceId,
  *     displayMode?, maxItems?, perItemDuration?, listLabel?, startDate?, endDate?,
+ *     featuredMonthYear? (Featured Readers only — e.g. "September 2025"; blank = current month),
  *     backgroundImageAssetId?, divBackgroundColor?, divBackgroundOpacity?,
  *     titleColor?, bodyColor?, metaColor?, templateId? }
  */
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
     maxItems,
     perItemDuration,
     listLabel,
+    featuredMonthYear,
     backgroundImageAssetId,
     divBackgroundColor,
     divBackgroundOpacity,
@@ -117,6 +119,7 @@ export async function POST(request: NextRequest) {
           maxItems: maxItems ?? 20,
           perItemDuration: perItemDuration ?? 10,
           listLabel: listLabel || null,
+          featuredMonthYear: featuredMonthYear || null,
           backgroundImageAssetId: backgroundImageAssetId || null,
           divBackgroundColor: divBackgroundColor || "#000000",
           divBackgroundOpacity: divBackgroundOpacity ?? 60,

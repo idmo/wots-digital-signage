@@ -34,6 +34,7 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
     maxItems,
     perItemDuration,
     listLabel,
+    featuredMonthYear,
     backgroundImageAssetId,
     divBackgroundColor,
     divBackgroundOpacity,
@@ -74,6 +75,7 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
         ...(maxItems !== undefined ? { maxItems: Number(maxItems) } : {}),
         ...(perItemDuration !== undefined ? { perItemDuration: Number(perItemDuration) } : {}),
         ...(listLabel !== undefined ? { listLabel: listLabel || null } : {}),
+        ...(featuredMonthYear !== undefined ? { featuredMonthYear: featuredMonthYear || null } : {}),
         ...(backgroundImageAssetId !== undefined
           ? { backgroundImageAssetId: backgroundImageAssetId || null }
           : {}),

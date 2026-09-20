@@ -13,6 +13,7 @@ type DynamicInfo = {
   maxItems: number;
   perItemDuration: number;
   listLabel: string | null;
+  featuredMonthYear: string | null;
   backgroundImage: { filePath: string } | null;
   divBackgroundColor: string;
   divBackgroundOpacity: number;
@@ -85,6 +86,7 @@ export default function BlockLibraryPage() {
   const [dynDataSourceId, setDynDataSourceId] = useState("");
   const [dynDisplayMode, setDynDisplayMode] = useState<"carousel" | "list">("carousel");
   const [dynListLabel, setDynListLabel] = useState("");
+  const [dynFeaturedMonthYear, setDynFeaturedMonthYear] = useState("");
   const [dynMaxItems, setDynMaxItems] = useState("10");
   const [dynPerItemDuration, setDynPerItemDuration] = useState("10");
   const [dynBackgroundFile, setDynBackgroundFile] = useState<File | null>(null);
@@ -233,6 +235,7 @@ export default function BlockLibraryPage() {
           dataSourceId: dynDataSourceId,
           displayMode: dynDisplayMode,
           listLabel: dynDisplayMode === "list" ? dynListLabel : null,
+          featuredMonthYear: blockKind === "wordpress_featured_readers" ? dynFeaturedMonthYear.trim() || null : undefined,
           maxItems: Number(dynMaxItems) || 10,
           perItemDuration: Number(dynPerItemDuration) || 10,
           endDate: endDate || null,
@@ -252,6 +255,7 @@ export default function BlockLibraryPage() {
       setName("");
       setEndDate("");
       setDynListLabel("");
+      setDynFeaturedMonthYear("");
       setDynBackgroundFile(null);
       setDynDivColor("#000000");
       setDynDivOpacity("60");
@@ -398,6 +402,21 @@ export default function BlockLibraryPage() {
                   placeholder="e.g. Upcoming Events, or Coming this October"
                   className="border rounded px-3 py-2 text-sm w-full mt-1"
                 />
+              </label>
+            )}
+
+            {blockKind === "wordpress_featured_readers" && (
+              <label className="block text-sm">
+                Month &amp; Year (optional)
+                <input
+                  value={dynFeaturedMonthYear}
+                  onChange={(e) => setDynFeaturedMonthYear(e.target.value)}
+                  placeholder="Blank = current month, or pin one e.g. September 2025"
+                  className="border rounded px-3 py-2 text-sm w-full mt-1"
+                />
+                <span className="text-xs text-neutral-500 mt-1 block">
+                  Matched against each Reader&apos;s own &quot;Featured Month and Year&quot; field in WordPress.
+                </span>
               </label>
             )}
 
@@ -586,6 +605,11 @@ export default function BlockLibraryPage() {
                       : `${b.dynamic?.maxItems ?? "?"} items · ${b.dynamic?.perItemDuration ?? "?"}s each`
                     : `${b.durationSeconds ?? b.category.defaultDurationSeconds}s`}
                 </div>
+                {b.dynamic?.dataSource?.type === "wordpress_featured_readers" && (
+                  <div className="text-xs text-neutral-500">
+                    {b.dynamic.featuredMonthYear ? `Pinned: ${b.dynamic.featuredMonthYear}` : "Current month (auto)"}
+                  </div>
+                )}
                 {b.note && (
                   <div className="text-xs text-neutral-600 italic mt-1 line-clamp-2">{b.note}</div>
                 )}
@@ -652,6 +676,7 @@ function EditBlockModal({
     block.dynamic?.displayMode === "list" ? "list" : "carousel"
   );
   const [dynListLabel, setDynListLabel] = useState(block.dynamic?.listLabel ?? "");
+  const [dynFeaturedMonthYear, setDynFeaturedMonthYear] = useState(block.dynamic?.featuredMonthYear ?? "");
   const [dynMaxItems, setDynMaxItems] = useState(String(block.dynamic?.maxItems ?? 10));
   const [dynPerItemDuration, setDynPerItemDuration] = useState(String(block.dynamic?.perItemDuration ?? 10));
   const [dynBackgroundFile, setDynBackgroundFile] = useState<File | null>(null);
@@ -714,6 +739,7 @@ function EditBlockModal({
                 dataSourceId: dynDataSourceId,
                 displayMode: dynDisplayMode,
                 listLabel: dynDisplayMode === "list" ? dynListLabel : null,
+                featuredMonthYear: isFeaturedReaders ? dynFeaturedMonthYear.trim() || null : undefined,
                 maxItems: Number(dynMaxItems) || 10,
                 perItemDuration: Number(dynPerItemDuration) || 10,
                 ...(backgroundImageAssetId !== undefined ? { backgroundImageAssetId } : {}),
@@ -850,6 +876,21 @@ function EditBlockModal({
                   placeholder="e.g. Upcoming Events, or Coming this October"
                   className="border rounded px-3 py-2 text-sm w-full mt-1"
                 />
+              </label>
+            )}
+
+            {isFeaturedReaders && (
+              <label className="block text-sm">
+                Month &amp; Year (optional)
+                <input
+                  value={dynFeaturedMonthYear}
+                  onChange={(e) => setDynFeaturedMonthYear(e.target.value)}
+                  placeholder="Blank = current month, or pin one e.g. September 2025"
+                  className="border rounded px-3 py-2 text-sm w-full mt-1"
+                />
+                <span className="text-xs text-neutral-500 mt-1 block">
+                  Matched against each Reader&apos;s own &quot;Featured Month and Year&quot; field in WordPress.
+                </span>
               </label>
             )}
 

@@ -42,6 +42,7 @@ export type FormattedBulletinItem = {
 
 export type FormattedFeaturedReader = {
   id: number;
+  readerId: number;
   readerName: string;
   readerPhotoUrl: string | null;
   bookTitle: string;
@@ -50,6 +51,19 @@ export type FormattedFeaturedReader = {
   blurbHtml: string;
   qrCodeDataUrl: string | null;
   elements: Record<string, ElementValue>;
+};
+
+// The "list of lists" grouping for Featured Readers' list display mode: one
+// group per reader (in case more than one is featured this period), each
+// holding that reader's own recommendation(s). Consecutive entries in a
+// carousel's flat `readers` array share this same grouping/ordering — see
+// groupEntriesByReader below — so a carousel naturally plays through one
+// reader's recommendations before moving to the next reader.
+export type FormattedFeaturedReaderGroup = {
+  readerId: number;
+  readerName: string;
+  readerPhotoUrl: string | null;
+  recommendations: FormattedFeaturedReader[];
 };
 
 // A block's chosen drag-and-drop layout (lib/templates.ts), resolved and
@@ -95,7 +109,17 @@ export type ResolvedItem = {
   bulletinBoard?: { mode: "carousel" | "list"; listLabel: string | null; items: FormattedBulletinItem[]; template: ResolvedTemplate | null } & DynamicPanelStyle;
   // For featured_readers: same carousel/list semantics again, over this
   // month's (or a pinned month's) Feature Period recommendations.
-  featuredReaders?: { mode: "carousel" | "list"; listLabel: string | null; readers: FormattedFeaturedReader[]; template: ResolvedTemplate | null } & DynamicPanelStyle;
+  featuredReaders?: {
+    mode: "carousel" | "list";
+    listLabel: string | null;
+    // Flat, one-slide-per-recommendation — grouped so a given reader's
+    // recommendations are consecutive — used by carousel mode.
+    readers: FormattedFeaturedReader[];
+    // The same data nested by reader — "a list of featured readers, each
+    // with a list of their recommendations" — used by list mode.
+    readerGroups: FormattedFeaturedReaderGroup[];
+    template: ResolvedTemplate | null;
+  } & DynamicPanelStyle;
 };
 
 // Common named HTML entities WordPress content actually uses. Anything else
@@ -152,7 +176,7 @@ function sanitizeHtmlFragment(html: string): string {
   return html.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
 }
 
-async function formatEvent(event: WpEvent): Promise<FormattedEvent> {
+async function formatEvent(event: WpEvent, blockName: string): Promise<FormattedEvent> {
   const { weekday, date, timeRange } = formatEventWhen(event);
   // The Events Calendar leaves `excerpt` empty unless the organizer sets a
   // manual excerpt — most events on this site don't, so fall back to the
@@ -175,6 +199,7 @@ async function formatEvent(event: WpEvent): Promise<FormattedEvent> {
     imageUrl,
     qrCodeDataUrl,
     elements: {
+      block_name: { type: "text", value: blockName },
       featured_image: { type: "image", value: imageUrl },
       title: { type: "text", value: title },
       date_time: { type: "text", value: dateTime },
@@ -185,7 +210,7 @@ async function formatEvent(event: WpEvent): Promise<FormattedEvent> {
   };
 }
 
-async function formatBulletinItem(item: WpBulletinBoardItem): Promise<FormattedBulletinItem> {
+async function formatBulletinItem(item: WpBulletinBoardItem, blockName: string): Promise<FormattedBulletinItem> {
   const website = item.website?.trim();
   const orgName = decodeEntities(stripHtml(item.title?.rendered ?? ""));
   const imageUrl = bulletinBoardImageUrl(item);
@@ -199,6 +224,7 @@ async function formatBulletinItem(item: WpBulletinBoardItem): Promise<FormattedB
     imageUrl,
     qrCodeDataUrl,
     elements: {
+      block_name: { type: "text", value: blockName },
       featured_image: { type: "image", value: imageUrl },
       title: { type: "text", value: orgName },
       organization: { type: "text", value: organization },
@@ -208,7 +234,7 @@ async function formatBulletinItem(item: WpBulletinBoardItem): Promise<FormattedB
   };
 }
 
-async function formatFeaturedReader(entry: WpFeaturedReaderEntry): Promise<FormattedFeaturedReader> {
+async function formatFeaturedReader(entry: WpFeaturedReaderEntry, blockName: string): Promise<FormattedFeaturedReader> {
   const readerName = decodeEntities(entry.reader?.name ?? "");
   const bookTitle = decodeEntities(entry.book?.title ?? "");
   const bookAuthor = entry.book?.author?.trim() ? decodeEntities(entry.book.author.trim()) : null;
@@ -218,6 +244,7 @@ async function formatFeaturedReader(entry: WpFeaturedReaderEntry): Promise<Forma
 
   return {
     id: entry.id,
+    readerId: entry.reader?.id ?? 0,
     readerName,
     readerPhotoUrl: entry.reader?.photo_url ?? null,
     bookTitle,
@@ -226,6 +253,7 @@ async function formatFeaturedReader(entry: WpFeaturedReaderEntry): Promise<Forma
     blurbHtml,
     qrCodeDataUrl,
     elements: {
+      block_name: { type: "text", value: blockName },
       book_cover: { type: "image", value: entry.book?.cover_url ?? null },
       book_title: { type: "text", value: bookTitle },
       book_author: { type: "text", value: bookAuthor },
@@ -235,6 +263,46 @@ async function formatFeaturedReader(entry: WpFeaturedReaderEntry): Promise<Forma
       qr_code: { type: "qr", value: qrCodeDataUrl },
     },
   };
+}
+
+/** Reorders raw Featured Reader entries so every recommendation from the
+ * same reader is consecutive — first-seen reader order is preserved, and so
+ * is each reader's own recommendation order. Applied before `maxItems` is
+ * sliced so a reader's recommendations aren't split across the cutoff by an
+ * unrelated reader's post landing in between. */
+function groupEntriesByReader(entries: WpFeaturedReaderEntry[]): WpFeaturedReaderEntry[] {
+  const readerOrder: number[] = [];
+  const byReader = new Map<number, WpFeaturedReaderEntry[]>();
+  for (const entry of entries) {
+    const readerId = entry.reader?.id ?? 0;
+    if (!byReader.has(readerId)) {
+      byReader.set(readerId, []);
+      readerOrder.push(readerId);
+    }
+    byReader.get(readerId)!.push(entry);
+  }
+  return readerOrder.flatMap((readerId) => byReader.get(readerId)!);
+}
+
+/** Nests an already reader-grouped, formatted list (see groupEntriesByReader)
+ * into the "list of lists" shape list mode renders: one entry per reader,
+ * each carrying that reader's recommendation(s). */
+function groupFormattedReaders(readers: FormattedFeaturedReader[]): FormattedFeaturedReaderGroup[] {
+  const groups: FormattedFeaturedReaderGroup[] = [];
+  for (const reader of readers) {
+    const last = groups[groups.length - 1];
+    if (last && last.readerId === reader.readerId) {
+      last.recommendations.push(reader);
+    } else {
+      groups.push({
+        readerId: reader.readerId,
+        readerName: reader.readerName,
+        readerPhotoUrl: reader.readerPhotoUrl,
+        recommendations: [reader],
+      });
+    }
+  }
+  return groups;
 }
 
 /** Parses a dynamic block's assigned template (if any) into the shape the
@@ -326,7 +394,9 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
         if (!baseUrl) continue;
 
         const rawEvents = await fetchWordPressEvents(baseUrl, block.dynamic.maxItems);
-        const events = await Promise.all(rawEvents.slice(0, block.dynamic.maxItems).map(formatEvent));
+        const events = await Promise.all(
+          rawEvents.slice(0, block.dynamic.maxItems).map((e) => formatEvent(e, block.name))
+        );
         if (events.length === 0) continue;
 
         const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
@@ -378,7 +448,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           .slice(0, block.dynamic.maxItems);
         if (eligible.length === 0) continue;
 
-        const formatted = await Promise.all(eligible.map(formatBulletinItem));
+        const formatted = await Promise.all(eligible.map((it) => formatBulletinItem(it, block.name)));
 
         const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
         items.push({
@@ -420,14 +490,18 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
         baseUrl = baseUrl || process.env.WORDPRESS_BASE_URL;
         if (!baseUrl) continue;
 
-        // Always "current" — per-block period pinning isn't offered (a
-        // Featured Readers block just always shows whatever's tagged with
-        // the current Feature Period, resolved server-side by WordPress).
-        const rawEntries = await fetchFeaturedReaders(baseUrl, "current");
-        const entries = rawEntries.slice(0, block.dynamic.maxItems);
+        // A blank featuredMonthYear auto-resolves to "whatever month it is
+        // right now" (server-side, by WordPress); a pinned value like
+        // "September 2025" is matched — loosely, see the endpoint's
+        // signage_parse_month_year — against each Reader's own "Featured
+        // Month and Year" field.
+        const period = block.dynamic.featuredMonthYear?.trim() || "current";
+        const rawEntries = await fetchFeaturedReaders(baseUrl, period);
+        const entries = groupEntriesByReader(rawEntries).slice(0, block.dynamic.maxItems);
         if (entries.length === 0) continue;
 
-        const readers = await Promise.all(entries.map(formatFeaturedReader));
+        const readers = await Promise.all(entries.map((e) => formatFeaturedReader(e, block.name)));
+        const readerGroups = groupFormattedReaders(readers);
 
         const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
         items.push({
@@ -442,6 +516,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
             mode,
             listLabel: block.dynamic.listLabel,
             readers,
+            readerGroups,
             template: resolveTemplate(block.dynamic.template),
             backgroundImageUrl: block.dynamic.backgroundImage?.filePath ?? null,
             divBackgroundColor: block.dynamic.divBackgroundColor,
