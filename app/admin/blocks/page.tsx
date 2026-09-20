@@ -861,17 +861,25 @@ function EditBlockModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose}>
       <form
         onSubmit={save}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 space-y-3"
+        className="fixed inset-y-0 right-0 z-50 h-full w-full sm:w-[480px] sm:max-w-[90vw] bg-white shadow-xl flex flex-col"
       >
-        <h2 className="font-medium text-lg">Edit Block</h2>
+        <div className="shrink-0 border-b px-5 py-4 flex items-center justify-between">
+          <h2 className="font-medium text-lg">Edit Block</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-neutral-400 hover:text-neutral-600 text-xl leading-none px-1"
+          >
+            ×
+          </button>
+        </div>
 
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
         <label className="block text-sm">
           Name
           <input
@@ -1137,8 +1145,9 @@ function EditBlockModal({
         </label>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
 
-        <div className="flex items-center justify-between pt-2">
+        <div className="shrink-0 border-t px-5 py-4 flex items-center justify-between bg-white">
           <div>
             {confirmingDelete ? (
               <div className="flex items-center gap-2">
