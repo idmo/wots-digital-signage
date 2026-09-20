@@ -22,6 +22,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Link href="/admin/templates" className="hover:underline">
               Templates
             </Link>
+            <Link href="/admin/settings" className="hover:underline">
+              Settings
+            </Link>
           </nav>
           <a href="/player" target="_blank" className="ml-auto text-sm text-indigo-600 hover:underline">
             Open Player ↗

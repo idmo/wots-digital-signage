@@ -84,6 +84,18 @@ export const blocks = pgTable(
     fitMode: text("fit_mode").notNull().default("cover"),
     // Free-text annotation for whoever's managing content (e.g. "swap after Sept 30").
     note: text("note"),
+    // Per-block overrides for the two transition/animation settings below —
+    // null means "use the global default from `settings`" (see that table).
+    // contentAnimation: fade | slide | zoom | none — animates the content
+    // *inside* a dynamic block's panel (not its background image) whenever
+    // that content first appears or changes. Only meaningful for
+    // dynamic_template blocks (the ones with a DynamicPanel); harmless and
+    // unused on static_image/video blocks.
+    contentAnimation: text("content_animation"),
+    // blockTransition: cut | crossfade | slide | zoom — how the *whole
+    // screen* transitions from the previous block in the sequence into this
+    // one. Applies to every block type.
+    blockTransition: text("block_transition"),
     ...timestamps,
   },
   (table) => [index("blocks_status_idx").on(table.status), index("blocks_category_idx").on(table.categoryId)]
@@ -147,6 +159,23 @@ export const dynamicBlocks = pgTable("dynamic_blocks", {
   titleColor: text("title_color").notNull().default("#ffffff"),
   bodyColor: text("body_color").notNull().default("#ffffff"),
   metaColor: text("meta_color").notNull().default("#ffffff"),
+});
+
+// A single-row table (id is always the literal "global") holding the
+// app-wide defaults for the two transition/animation settings a block can
+// individually override (see `blocks.contentAnimation`/`blockTransition`
+// above). Kept as its own table rather than folded into an existing one
+// since it's app-wide config, not owned by any one block/category/sequence.
+export const settings = pgTable("settings", {
+  id: text("id").primaryKey(),
+  // none | fade | slide | zoom — default entrance animation for a dynamic
+  // block's inner content panel.
+  contentAnimation: text("content_animation").notNull().default("fade"),
+  contentAnimationDurationMs: integer("content_animation_duration_ms").notNull().default(500),
+  // cut | crossfade | slide | zoom — default transition between blocks.
+  blockTransition: text("block_transition").notNull().default("crossfade"),
+  blockTransitionDurationMs: integer("block_transition_duration_ms").notNull().default(800),
+  ...timestamps,
 });
 
 export const sequences = pgTable("sequences", {

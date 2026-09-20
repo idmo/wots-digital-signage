@@ -74,6 +74,15 @@ export type ResolvedTemplate = {
   regions: TemplateRegions;
 };
 
+// Entrance animation for the content *inside* a dynamic block's panel (not
+// its background image) — replays whenever that content first appears or
+// changes (a new carousel item, or the whole panel on a fresh block).
+export type ContentAnimation = "none" | "fade" | "slide" | "zoom";
+
+// How the whole screen transitions from the previous block in the sequence
+// into this one. Applies to every block type, not just dynamic ones.
+export type BlockTransition = "cut" | "crossfade" | "slide" | "zoom";
+
 // Shared "built-in renderer" panel settings for a WordPress-sourced dynamic
 // block (Events or Bulletin Board) — set once per block. See DynamicPanel
 // in app/player. metaColor is only used by the Events renderer's
@@ -85,6 +94,8 @@ export type DynamicPanelStyle = {
   titleColor: string;
   bodyColor: string;
   metaColor: string;
+  contentAnimation: ContentAnimation;
+  contentAnimationDurationMs: number;
 };
 
 export type ResolvedItem = {
@@ -95,6 +106,11 @@ export type ResolvedItem = {
   type: "static_image" | "video" | "wordpress_events" | "bulletin_board" | "featured_readers";
   fitMode: string;
   durationSeconds: number;
+  // The transition used to bring THIS block on screen, replacing whatever
+  // was playing before it — the block's own override, or the app-wide
+  // default from `settings` when it doesn't have one (see resolveSequence).
+  blockTransition: BlockTransition;
+  blockTransitionDurationMs: number;
   // Rendering payload — shape depends on block type.
   staticImage?: { url: string };
   video?: { url: string };
@@ -322,6 +338,57 @@ function resolveTemplate(
   }
 }
 
+const CONTENT_ANIMATIONS: ContentAnimation[] = ["none", "fade", "slide", "zoom"];
+const BLOCK_TRANSITIONS: BlockTransition[] = ["cut", "crossfade", "slide", "zoom"];
+
+type EffectiveSettings = {
+  contentAnimation: ContentAnimation;
+  contentAnimationDurationMs: number;
+  blockTransition: BlockTransition;
+  blockTransitionDurationMs: number;
+};
+
+// App-wide fallbacks, used both if the `settings` row is somehow missing
+// and as the literal defaults seeded into it by migration 0007.
+const DEFAULT_SETTINGS: EffectiveSettings = {
+  contentAnimation: "fade",
+  contentAnimationDurationMs: 500,
+  blockTransition: "crossfade",
+  blockTransitionDurationMs: 800,
+};
+
+/** Loads the single app-wide `settings` row (§ transitions/animations),
+ * falling back to hardcoded defaults if it's missing or has an
+ * unrecognized value rather than letting a bad row break every block. */
+async function loadEffectiveSettings(): Promise<EffectiveSettings> {
+  const row = await db.query.settings.findFirst({ where: (settings, { eq }) => eq(settings.id, "global") });
+  return {
+    contentAnimation:
+      row && CONTENT_ANIMATIONS.includes(row.contentAnimation as ContentAnimation)
+        ? (row.contentAnimation as ContentAnimation)
+        : DEFAULT_SETTINGS.contentAnimation,
+    contentAnimationDurationMs: row?.contentAnimationDurationMs ?? DEFAULT_SETTINGS.contentAnimationDurationMs,
+    blockTransition:
+      row && BLOCK_TRANSITIONS.includes(row.blockTransition as BlockTransition)
+        ? (row.blockTransition as BlockTransition)
+        : DEFAULT_SETTINGS.blockTransition,
+    blockTransitionDurationMs: row?.blockTransitionDurationMs ?? DEFAULT_SETTINGS.blockTransitionDurationMs,
+  };
+}
+
+/** A block's own override for one of these two settings, or the app-wide
+ * default when it doesn't have one (null, or not a recognized value). */
+function effectiveContentAnimation(override: string | null, settings: EffectiveSettings): ContentAnimation {
+  return override && CONTENT_ANIMATIONS.includes(override as ContentAnimation)
+    ? (override as ContentAnimation)
+    : settings.contentAnimation;
+}
+function effectiveBlockTransition(override: string | null, settings: EffectiveSettings): BlockTransition {
+  return override && BLOCK_TRANSITIONS.includes(override as BlockTransition)
+    ? (override as BlockTransition)
+    : settings.blockTransition;
+}
+
 /**
  * Resolves a sequence into an ordered play-list of currently-eligible
  * blocks (PRD §5). `dynamic_template` blocks backed by a `wordpress_events`
@@ -352,6 +419,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
 
   if (!sequence) return [];
 
+  const settings = await loadEffectiveSettings();
   const now = new Date();
   const items: ResolvedItem[] = [];
 
@@ -369,6 +437,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
         type: "static_image",
         fitMode: block.fitMode,
         durationSeconds: block.durationSeconds ?? block.category.defaultDurationSeconds,
+        blockTransition: effectiveBlockTransition(block.blockTransition, settings),
+        blockTransitionDurationMs: settings.blockTransitionDurationMs,
         staticImage: { url: block.staticImage.imageAsset.filePath },
       });
     } else if (block.type === "video" && block.video) {
@@ -380,6 +450,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
         type: "video",
         fitMode: block.fitMode,
         durationSeconds: block.video.durationSeconds,
+        blockTransition: effectiveBlockTransition(block.blockTransition, settings),
+        blockTransitionDurationMs: settings.blockTransitionDurationMs,
         video: { url: block.video.videoAsset.filePath },
       });
     } else if (block.type === "dynamic_template" && block.dynamic && block.dynamic.dataSource.type === "wordpress_events") {
@@ -408,6 +480,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           type: "wordpress_events",
           fitMode: block.fitMode,
           durationSeconds: block.dynamic.perItemDuration,
+          blockTransition: effectiveBlockTransition(block.blockTransition, settings),
+          blockTransitionDurationMs: settings.blockTransitionDurationMs,
           wordpressEvents: {
             mode,
             listLabel: block.dynamic.listLabel,
@@ -419,6 +493,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
             titleColor: block.dynamic.titleColor,
             bodyColor: block.dynamic.bodyColor,
             metaColor: block.dynamic.metaColor,
+            contentAnimation: effectiveContentAnimation(block.contentAnimation, settings),
+            contentAnimationDurationMs: settings.contentAnimationDurationMs,
           },
         });
       } catch {
@@ -459,6 +535,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           type: "bulletin_board",
           fitMode: block.fitMode,
           durationSeconds: block.dynamic.perItemDuration,
+          blockTransition: effectiveBlockTransition(block.blockTransition, settings),
+          blockTransitionDurationMs: settings.blockTransitionDurationMs,
           bulletinBoard: {
             mode,
             listLabel: block.dynamic.listLabel,
@@ -470,6 +548,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
             titleColor: block.dynamic.titleColor,
             bodyColor: block.dynamic.bodyColor,
             metaColor: block.dynamic.metaColor,
+            contentAnimation: effectiveContentAnimation(block.contentAnimation, settings),
+            contentAnimationDurationMs: settings.contentAnimationDurationMs,
           },
         });
       } catch {
@@ -512,6 +592,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           type: "featured_readers",
           fitMode: block.fitMode,
           durationSeconds: block.dynamic.perItemDuration,
+          blockTransition: effectiveBlockTransition(block.blockTransition, settings),
+          blockTransitionDurationMs: settings.blockTransitionDurationMs,
           featuredReaders: {
             mode,
             listLabel: block.dynamic.listLabel,
@@ -524,6 +606,8 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
             titleColor: block.dynamic.titleColor,
             bodyColor: block.dynamic.bodyColor,
             metaColor: block.dynamic.metaColor,
+            contentAnimation: effectiveContentAnimation(block.contentAnimation, settings),
+            contentAnimationDurationMs: settings.contentAnimationDurationMs,
           },
         });
       } catch {

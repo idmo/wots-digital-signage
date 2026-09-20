@@ -42,6 +42,8 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
     bodyColor,
     metaColor,
     templateId,
+    contentAnimation,
+    blockTransition,
   } = body;
 
   const existing = await db.query.blocks.findFirst({ where: eq(schema.blocks.id, id) });
@@ -62,6 +64,8 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
         : {}),
       ...(status !== undefined ? { status } : {}),
       ...(note !== undefined ? { note: note === "" ? null : note } : {}),
+      ...(contentAnimation !== undefined ? { contentAnimation: contentAnimation || null } : {}),
+      ...(blockTransition !== undefined ? { blockTransition: blockTransition || null } : {}),
     })
     .where(eq(schema.blocks.id, id));
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ResolvedItem } from "@/lib/resolve";
+import type { BlockTransition, ContentAnimation, ResolvedItem } from "@/lib/resolve";
 import { TEMPLATE_LAYOUTS } from "@/lib/templates";
 
 const RESOLVE_POLL_MS = 5 * 60 * 1000; // PRD §5 — re-resolve every 5 minutes
@@ -112,85 +112,244 @@ export default function PlayerPage() {
     };
   }, [current, isEventsCarousel, isBulletinCarousel, isFeaturedReadersCarousel, eventIndex, items.length]);
 
+  // Renders whichever slide `item` calls for at its `subIndex` (the
+  // internal carousel position for events/bulletin-board/featured-readers
+  // blocks in carousel mode — ignored otherwise). Pulled out of the JSX
+  // return so the block-transition stage below (which needs to freeze a
+  // *snapshot* of the previous block's last-rendered frame) can call it too.
+  const renderSlide = (item: ResolvedItem, subIndex: number): React.ReactNode => {
+    if (item.type === "static_image" && item.staticImage) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={item.sequenceBlockId}
+          src={item.staticImage.url}
+          alt={item.name}
+          className={`h-full w-full ${FIT_CLASS[item.fitMode] ?? "object-cover"}`}
+        />
+      );
+    }
+
+    if (item.type === "video" && item.video) {
+      return (
+        <video
+          key={item.sequenceBlockId}
+          src={item.video.url}
+          className={`h-full w-full ${FIT_CLASS[item.fitMode] ?? "object-cover"}`}
+          autoPlay
+          muted
+          playsInline
+          onEnded={() => setIndex((i) => (items.length ? (i + 1) % items.length : 0))}
+        />
+      );
+    }
+
+    if (item.type === "wordpress_events" && item.wordpressEvents?.mode === "carousel") {
+      return (
+        <EventsCarouselSlide
+          event={item.wordpressEvents.events[subIndex]}
+          panel={item.wordpressEvents}
+          template={item.wordpressEvents.template}
+          blockKey={item.sequenceBlockId}
+        />
+      );
+    }
+
+    if (item.type === "wordpress_events" && item.wordpressEvents?.mode === "list") {
+      return (
+        <EventsListSlide
+          label={item.wordpressEvents.listLabel}
+          events={item.wordpressEvents.events}
+          panel={item.wordpressEvents}
+          blockKey={item.sequenceBlockId}
+        />
+      );
+    }
+
+    if (item.type === "bulletin_board" && item.bulletinBoard?.mode === "carousel") {
+      return (
+        <BulletinBoardSlide
+          item={item.bulletinBoard.items[subIndex]}
+          panel={item.bulletinBoard}
+          template={item.bulletinBoard.template}
+          blockKey={item.sequenceBlockId}
+        />
+      );
+    }
+
+    if (item.type === "bulletin_board" && item.bulletinBoard?.mode === "list") {
+      return (
+        <BulletinBoardListSlide
+          label={item.bulletinBoard.listLabel}
+          items={item.bulletinBoard.items}
+          panel={item.bulletinBoard}
+          blockKey={item.sequenceBlockId}
+        />
+      );
+    }
+
+    if (item.type === "featured_readers" && item.featuredReaders?.mode === "carousel") {
+      return (
+        <FeaturedReaderSlide
+          reader={item.featuredReaders.readers[subIndex]}
+          panel={item.featuredReaders}
+          template={item.featuredReaders.template}
+          blockKey={item.sequenceBlockId}
+        />
+      );
+    }
+
+    if (item.type === "featured_readers" && item.featuredReaders?.mode === "list") {
+      return (
+        <FeaturedReaderListSlide
+          label={item.featuredReaders.listLabel}
+          readerGroups={item.featuredReaders.readerGroups}
+          panel={item.featuredReaders}
+          blockKey={item.sequenceBlockId}
+        />
+      );
+    }
+
+    return null;
+  };
+
+  const currentNode = current ? (
+    renderSlide(current, eventIndex)
+  ) : (
+    <p className="text-white/60 text-xl">
+      {sequenceName ? "No eligible content in this sequence right now." : "No live sequence is set."}
+    </p>
+  );
+
+  // Block-to-block transition (PRD "transitions and animations" work):
+  // whenever the *block* changes (a new sequenceBlockId — not just a
+  // carousel sub-item advance within the same block), freeze the last frame
+  // that was on screen as an "outgoing" layer underneath the fresh
+  // "incoming" one, using the transition style/duration the block being
+  // brought on screen carries (its own override, or the app-wide default —
+  // both already resolved server-side onto `current.blockTransition`).
+  type OutgoingLayer = { key: string; node: React.ReactNode; transition: BlockTransition; durationMs: number };
+  const [outgoing, setOutgoing] = useState<OutgoingLayer | null>(null);
+  const [prevBlockKey, setPrevBlockKey] = useState<string | null>(null);
+  const prevNodeRef = useRef<React.ReactNode>(null);
+
+  // Adjusting state during render (React's documented pattern for "storing
+  // information from previous renders") rather than in a useEffect — an
+  // effect runs one render *after* `current` has already flipped, so the
+  // freshly-mounted incoming StageLayer would see `outgoing` still null on
+  // that first render, permanently lock in "no transition" as its starting
+  // point (its `entered` state initializes once, on mount), and only
+  // observe the real transition style a render too late to animate from.
+  // Computing it inline here means both layers mount already knowing the
+  // right transition on the very first render where the new block appears.
+  const blockKey = current?.sequenceBlockId ?? "__empty__";
+  if (blockKey !== prevBlockKey) {
+    const style = current?.blockTransition ?? "cut";
+    const durationMs = current?.blockTransitionDurationMs ?? 0;
+    if (prevBlockKey !== null && style !== "cut" && durationMs > 0) {
+      setOutgoing({ key: prevBlockKey, node: prevNodeRef.current, transition: style, durationMs });
+    } else {
+      setOutgoing(null);
+    }
+    setPrevBlockKey(blockKey);
+  }
+
+  // Always keep the latest rendered frame around (after every commit) so
+  // that whenever the block next changes, the render-phase check above has
+  // the true last-seen frame of the outgoing block ready — including the
+  // final carousel sub-item shown, not just its first one.
+  useEffect(() => {
+    prevNodeRef.current = currentNode;
+  });
+
+  // Once an outgoing layer's own transition has had time to finish, drop it
+  // — it's been fully covered by the incoming layer for a while by then.
+  useEffect(() => {
+    if (!outgoing) return;
+    const timer = setTimeout(() => setOutgoing(null), outgoing.durationMs);
+    return () => clearTimeout(timer);
+  }, [outgoing]);
+
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
-      <div className="absolute inset-0 flex items-center justify-center">
-        {!current && (
-          <p className="text-white/60 text-xl">
-            {sequenceName ? "No eligible content in this sequence right now." : "No live sequence is set."}
-          </p>
-        )}
+      {outgoing && (
+        <StageLayer key={outgoing.key} role="outgoing" transition={outgoing.transition} durationMs={outgoing.durationMs}>
+          {outgoing.node}
+        </StageLayer>
+      )}
+      <StageLayer
+        key={blockKey}
+        role="incoming"
+        transition={outgoing ? outgoing.transition : "cut"}
+        durationMs={outgoing?.durationMs ?? 0}
+      >
+        {currentNode}
+      </StageLayer>
+    </div>
+  );
+}
 
-        {current?.type === "static_image" && current.staticImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={current.sequenceBlockId}
-            src={current.staticImage.url}
-            alt={current.name}
-            className={`h-full w-full ${FIT_CLASS[current.fitMode] ?? "object-cover"}`}
-          />
-        )}
+const BLOCK_TRANSITION_STYLES: Record<
+  Exclude<BlockTransition, "cut">,
+  { incoming: { from: React.CSSProperties; to: React.CSSProperties }; outgoing: { from: React.CSSProperties; to: React.CSSProperties } }
+> = {
+  crossfade: {
+    incoming: { from: { opacity: 0 }, to: { opacity: 1 } },
+    outgoing: { from: { opacity: 1 }, to: { opacity: 0 } },
+  },
+  slide: {
+    incoming: { from: { opacity: 1, transform: "translateX(100%)" }, to: { opacity: 1, transform: "translateX(0%)" } },
+    outgoing: { from: { opacity: 1, transform: "translateX(0%)" }, to: { opacity: 1, transform: "translateX(-100%)" } },
+  },
+  zoom: {
+    incoming: { from: { opacity: 0, transform: "scale(0.92)" }, to: { opacity: 1, transform: "scale(1)" } },
+    outgoing: { from: { opacity: 1, transform: "scale(1)" }, to: { opacity: 0, transform: "scale(1.08)" } },
+  },
+};
 
-        {current?.type === "video" && current.video && (
-          <video
-            key={current.sequenceBlockId}
-            src={current.video.url}
-            className={`h-full w-full ${FIT_CLASS[current.fitMode] ?? "object-cover"}`}
-            autoPlay
-            muted
-            playsInline
-            onEnded={() => setIndex((i) => (items.length ? (i + 1) % items.length : 0))}
-          />
-        )}
+/**
+ * One full-screen layer of the block-transition stage — either the
+ * "incoming" (new) block or a frozen "outgoing" (previous) block's last
+ * frame. For `transition === "cut"` it's just a plain, unanimated layer
+ * (today's instant-swap behavior). Otherwise it starts at its style's
+ * `from` position and flips to `to` one frame after mount, which is what
+ * actually triggers the CSS transition.
+ */
+function StageLayer({
+  role,
+  transition,
+  durationMs,
+  children,
+}: {
+  role: "incoming" | "outgoing";
+  transition: BlockTransition;
+  durationMs: number;
+  children: React.ReactNode;
+}) {
+  const [entered, setEntered] = useState(transition === "cut");
 
-        {current?.type === "wordpress_events" && current.wordpressEvents?.mode === "carousel" && (
-          <EventsCarouselSlide
-            event={current.wordpressEvents.events[eventIndex]}
-            panel={current.wordpressEvents}
-            template={current.wordpressEvents.template}
-          />
-        )}
+  useEffect(() => {
+    if (transition === "cut") return;
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, [transition]);
 
-        {current?.type === "wordpress_events" && current.wordpressEvents?.mode === "list" && (
-          <EventsListSlide
-            label={current.wordpressEvents.listLabel}
-            events={current.wordpressEvents.events}
-            panel={current.wordpressEvents}
-          />
-        )}
+  const style: React.CSSProperties =
+    transition === "cut"
+      ? {}
+      : {
+          ...(entered ? BLOCK_TRANSITION_STYLES[transition][role].to : BLOCK_TRANSITION_STYLES[transition][role].from),
+          transitionProperty: "opacity, transform",
+          transitionDuration: `${durationMs}ms`,
+          transitionTimingFunction: "ease-in-out",
+        };
 
-        {current?.type === "bulletin_board" && current.bulletinBoard?.mode === "carousel" && (
-          <BulletinBoardSlide
-            item={current.bulletinBoard.items[eventIndex]}
-            panel={current.bulletinBoard}
-            template={current.bulletinBoard.template}
-          />
-        )}
-
-        {current?.type === "bulletin_board" && current.bulletinBoard?.mode === "list" && (
-          <BulletinBoardListSlide
-            label={current.bulletinBoard.listLabel}
-            items={current.bulletinBoard.items}
-            panel={current.bulletinBoard}
-          />
-        )}
-
-        {current?.type === "featured_readers" && current.featuredReaders?.mode === "carousel" && (
-          <FeaturedReaderSlide
-            reader={current.featuredReaders.readers[eventIndex]}
-            panel={current.featuredReaders}
-            template={current.featuredReaders.template}
-          />
-        )}
-
-        {current?.type === "featured_readers" && current.featuredReaders?.mode === "list" && (
-          <FeaturedReaderListSlide
-            label={current.featuredReaders.listLabel}
-            readerGroups={current.featuredReaders.readerGroups}
-            panel={current.featuredReaders}
-          />
-        )}
-      </div>
+  return (
+    <div
+      className="absolute inset-0 flex items-center justify-center"
+      style={{ zIndex: role === "incoming" ? 2 : 1, ...style }}
+    >
+      {children}
     </div>
   );
 }
@@ -209,23 +368,41 @@ function hexToRgba(hex: string, opacityPercent: number): string {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
+const CONTENT_ANIM_CLASS: Record<ContentAnimation, string> = {
+  none: "",
+  fade: "content-anim-fade",
+  slide: "content-anim-slide",
+  zoom: "content-anim-zoom",
+};
+
 /**
  * Shared frame for the built-in WordPress renderers (Events, Bulletin
  * Board): a full-bleed background image (uploaded once per block — a
  * WordPress featured image is usually too busy/inconsistent for signage)
  * behind a padded, tinted panel that's vertically centered on the stage.
  * `children` is whatever that block's carousel/list content looks like.
+ *
+ * The panel itself — NOT the background image behind it — is what plays
+ * the content-level entrance animation (`style.contentAnimation`): it's
+ * wrapped in a div keyed by `contentKey`, so remounting on a new key (a new
+ * carousel item, or a fresh block) replays the CSS animation automatically.
  */
 function DynamicPanel({
   style,
   wide,
+  contentKey,
   children,
 }: {
   style: DynamicPanelStyle;
   /** List slides run taller (they show several items) than a single-item carousel card. */
   wide?: boolean;
+  /** Changes whenever the content inside should replay its entrance
+   * animation — a new carousel item's id, or the whole block's id for
+   * list mode. */
+  contentKey: string;
   children: React.ReactNode;
 }) {
+  const animClass = CONTENT_ANIM_CLASS[style.contentAnimation] ?? "";
   return (
     <div className="relative w-full h-full bg-black overflow-hidden flex items-center justify-center">
       {style.backgroundImageUrl && (
@@ -233,10 +410,14 @@ function DynamicPanel({
         <img src={style.backgroundImageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
       )}
       <div
+        key={contentKey}
         className={`relative w-[85%] max-w-[1700px] rounded-2xl px-16 py-12 text-white overflow-hidden ${
           wide ? "max-h-[80%] flex flex-col" : ""
-        }`}
-        style={{ backgroundColor: hexToRgba(style.divBackgroundColor, style.divBackgroundOpacity) }}
+        } ${animClass}`}
+        style={{
+          backgroundColor: hexToRgba(style.divBackgroundColor, style.divBackgroundOpacity),
+          animationDuration: `${style.contentAnimationDurationMs}ms`,
+        }}
       >
         {children}
       </div>
@@ -379,21 +560,24 @@ function EventsCarouselSlide({
   event,
   panel,
   template,
+  blockKey,
 }: {
   event: import("@/lib/resolve").FormattedEvent;
   panel: DynamicPanelStyle;
   template: ResolvedTemplate | null;
+  blockKey: string;
 }) {
   if (!event) return null;
+  const contentKey = `${blockKey}:${event.id}`;
   if (template) {
     return (
-      <DynamicPanel style={panel} wide>
+      <DynamicPanel style={panel} wide contentKey={contentKey}>
         <TemplateSlide template={template} elements={event.elements} panel={panel} />
       </DynamicPanel>
     );
   }
   return (
-    <DynamicPanel style={panel}>
+    <DynamicPanel style={panel} contentKey={contentKey}>
       <div key={event.id}>
         {event.imageUrl && <FeaturedImageBanner imageUrl={event.imageUrl} alt={event.title} />}
         <div className="flex items-center gap-10">
@@ -421,21 +605,24 @@ function BulletinBoardSlide({
   item,
   panel,
   template,
+  blockKey,
 }: {
   item: import("@/lib/resolve").FormattedBulletinItem;
   panel: DynamicPanelStyle;
   template: ResolvedTemplate | null;
+  blockKey: string;
 }) {
   if (!item) return null;
+  const contentKey = `${blockKey}:${item.id}`;
   if (template) {
     return (
-      <DynamicPanel style={panel} wide>
+      <DynamicPanel style={panel} wide contentKey={contentKey}>
         <TemplateSlide template={template} elements={item.elements} panel={panel} />
       </DynamicPanel>
     );
   }
   return (
-    <DynamicPanel style={panel}>
+    <DynamicPanel style={panel} contentKey={contentKey}>
       <div key={item.id}>
         {item.imageUrl && <FeaturedImageBanner imageUrl={item.imageUrl} alt={item.orgName} />}
         <div className="flex items-center gap-10">
@@ -458,13 +645,15 @@ function EventsListSlide({
   label,
   events,
   panel,
+  blockKey,
 }: {
   label: string | null;
   events: import("@/lib/resolve").FormattedEvent[];
   panel: DynamicPanelStyle;
+  blockKey: string;
 }) {
   return (
-    <DynamicPanel style={panel} wide>
+    <DynamicPanel style={panel} wide contentKey={blockKey}>
       {label && (
         <h1 className="text-5xl font-bold mb-8 shrink-0" style={{ color: panel.titleColor }}>
           {label}
@@ -491,13 +680,15 @@ function BulletinBoardListSlide({
   label,
   items,
   panel,
+  blockKey,
 }: {
   label: string | null;
   items: import("@/lib/resolve").FormattedBulletinItem[];
   panel: DynamicPanelStyle;
+  blockKey: string;
 }) {
   return (
-    <DynamicPanel style={panel} wide>
+    <DynamicPanel style={panel} wide contentKey={blockKey}>
       {label && (
         <h1 className="text-5xl font-bold mb-8 shrink-0" style={{ color: panel.titleColor }}>
           {label}
@@ -539,21 +730,24 @@ function FeaturedReaderSlide({
   reader,
   panel,
   template,
+  blockKey,
 }: {
   reader: import("@/lib/resolve").FormattedFeaturedReader;
   panel: DynamicPanelStyle;
   template: ResolvedTemplate | null;
+  blockKey: string;
 }) {
   if (!reader) return null;
+  const contentKey = `${blockKey}:${reader.id}`;
   if (template) {
     return (
-      <DynamicPanel style={panel} wide>
+      <DynamicPanel style={panel} wide contentKey={contentKey}>
         <TemplateSlide template={template} elements={reader.elements} panel={panel} />
       </DynamicPanel>
     );
   }
   return (
-    <DynamicPanel style={panel}>
+    <DynamicPanel style={panel} contentKey={contentKey}>
       <div key={reader.id}>
         {reader.bookCoverUrl && <FeaturedImageBanner imageUrl={reader.bookCoverUrl} alt={reader.bookTitle} />}
         <div className="flex items-center gap-10">
@@ -592,13 +786,15 @@ function FeaturedReaderListSlide({
   label,
   readerGroups,
   panel,
+  blockKey,
 }: {
   label: string | null;
   readerGroups: import("@/lib/resolve").FormattedFeaturedReaderGroup[];
   panel: DynamicPanelStyle;
+  blockKey: string;
 }) {
   return (
-    <DynamicPanel style={panel} wide>
+    <DynamicPanel style={panel} wide contentKey={blockKey}>
       {label && (
         <h1 className="text-5xl font-bold mb-8 shrink-0" style={{ color: panel.titleColor }}>
           {label}

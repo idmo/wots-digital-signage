@@ -35,6 +35,9 @@ export async function GET(request: NextRequest) {
  *     featuredMonthYear? (Featured Readers only — e.g. "September 2025"; blank = current month),
  *     backgroundImageAssetId?, divBackgroundColor?, divBackgroundOpacity?,
  *     titleColor?, bodyColor?, metaColor?, templateId? }
+ * Any block type also accepts contentAnimation? and blockTransition? —
+ * per-block overrides of the app-wide defaults in `settings`/GET
+ * /api/settings; omit or pass null to use the app-wide default.
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -61,6 +64,8 @@ export async function POST(request: NextRequest) {
     bodyColor,
     metaColor,
     templateId,
+    contentAnimation,
+    blockTransition,
   } = body;
 
   if (!name || !categoryId || !type) {
@@ -95,6 +100,8 @@ export async function POST(request: NextRequest) {
           endDate: endDate ? new Date(endDate).toISOString() : null,
           status: "active",
           durationSeconds: type === "static_image" ? durationSeconds ?? (textHeavy ? 18 : 10) : null,
+          contentAnimation: contentAnimation || null,
+          blockTransition: blockTransition || null,
         })
         .returning();
 

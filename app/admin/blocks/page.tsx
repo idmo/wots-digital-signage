@@ -31,10 +31,61 @@ type Block = {
   category: Category;
   durationSeconds: number | null;
   note: string | null;
+  // null = use the app-wide default from Settings.
+  contentAnimation: "none" | "fade" | "slide" | "zoom" | null;
+  blockTransition: "cut" | "crossfade" | "slide" | "zoom" | null;
   staticImage?: { imageAsset: { filePath: string } };
   video?: { videoAsset: { filePath: string }; durationSeconds: number };
   dynamic?: DynamicInfo;
 };
+
+const CONTENT_ANIMATION_LABEL: Record<string, string> = {
+  fade: "Fade in",
+  slide: "Slide + fade",
+  zoom: "Zoom + fade",
+  none: "None (instant)",
+};
+
+const BLOCK_TRANSITION_LABEL: Record<string, string> = {
+  crossfade: "Crossfade / dissolve",
+  slide: "Slide",
+  zoom: "Zoom",
+  cut: "Cut (instant)",
+};
+
+/** A shared "use global default, or override" select for the two
+ * transition/animation settings — used in both the create form and the
+ * edit modal. `value === ""` means "use the app-wide default from
+ * Settings". */
+function TransitionOverrideSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Record<string, string>;
+}) {
+  return (
+    <label className="block text-sm">
+      {label}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="border rounded px-3 py-2 text-sm w-full mt-1"
+      >
+        <option value="">Use global default (Settings)</option>
+        {Object.entries(options).map(([value, optLabel]) => (
+          <option key={value} value={value}>
+            {optLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 type BlockKind = "upload" | "wordpress_events" | "wordpress_bulletin_board" | "wordpress_featured_readers";
 
@@ -96,6 +147,8 @@ export default function BlockLibraryPage() {
   const [dynBodyColor, setDynBodyColor] = useState("#ffffff");
   const [dynMetaColor, setDynMetaColor] = useState("#ffffff");
   const [dynTemplateId, setDynTemplateId] = useState("");
+  const [contentAnimation, setContentAnimation] = useState("");
+  const [blockTransition, setBlockTransition] = useState("");
 
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
 
@@ -177,6 +230,7 @@ export default function BlockLibraryPage() {
             assetId: asset.id,
             textHeavy,
             endDate: endDate || null,
+            blockTransition: blockTransition || null,
           }),
         });
         if (!blockRes.ok) {
@@ -188,6 +242,7 @@ export default function BlockLibraryPage() {
         setFile(null);
         setTextHeavy(false);
         setEndDate("");
+        setBlockTransition("");
         await load();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -246,6 +301,8 @@ export default function BlockLibraryPage() {
           bodyColor: dynBodyColor,
           metaColor: dynMetaColor,
           templateId: dynTemplateId || null,
+          contentAnimation: contentAnimation || null,
+          blockTransition: blockTransition || null,
         }),
       });
       if (!blockRes.ok) {
@@ -263,6 +320,8 @@ export default function BlockLibraryPage() {
       setDynBodyColor("#ffffff");
       setDynTemplateId("");
       setDynMetaColor("#ffffff");
+      setContentAnimation("");
+      setBlockTransition("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -534,8 +593,24 @@ export default function BlockLibraryPage() {
                 </label>
               </div>
             </div>
+
+            <div className="border-t pt-3">
+              <TransitionOverrideSelect
+                label="Content animation override"
+                value={contentAnimation}
+                onChange={setContentAnimation}
+                options={CONTENT_ANIMATION_LABEL}
+              />
+            </div>
           </>
         )}
+
+        <TransitionOverrideSelect
+          label="Block transition override"
+          value={blockTransition}
+          onChange={setBlockTransition}
+          options={BLOCK_TRANSITION_LABEL}
+        />
 
         <label className="block text-sm">
           Expires on (optional — blank = evergreen)
@@ -687,6 +762,8 @@ function EditBlockModal({
   const [dynBodyColor, setDynBodyColor] = useState(block.dynamic?.bodyColor ?? "#ffffff");
   const [dynMetaColor, setDynMetaColor] = useState(block.dynamic?.metaColor ?? "#ffffff");
   const [dynTemplateId, setDynTemplateId] = useState(block.dynamic?.templateId ?? "");
+  const [contentAnimation, setContentAnimation] = useState(block.contentAnimation ?? "");
+  const [blockTransition, setBlockTransition] = useState(block.blockTransition ?? "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -731,6 +808,8 @@ function EditBlockModal({
           name,
           categoryId,
           note,
+          contentAnimation: contentAnimation || null,
+          blockTransition: blockTransition || null,
           ...(block.type === "static_image"
             ? { durationSeconds: durationSeconds === "" ? null : Number(durationSeconds) }
             : {}),
@@ -1027,8 +1106,24 @@ function EditBlockModal({
                 </label>
               </div>
             </div>
+
+            <div className="border-t pt-3">
+              <TransitionOverrideSelect
+                label="Content animation override"
+                value={contentAnimation}
+                onChange={setContentAnimation}
+                options={CONTENT_ANIMATION_LABEL}
+              />
+            </div>
           </>
         )}
+
+        <TransitionOverrideSelect
+          label="Block transition override"
+          value={blockTransition}
+          onChange={setBlockTransition}
+          options={BLOCK_TRANSITION_LABEL}
+        />
 
         <label className="block text-sm">
           Note
