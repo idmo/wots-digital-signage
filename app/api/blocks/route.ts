@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
-      dynamic: { with: { dataSource: true } },
+      dynamic: { with: { dataSource: true, backgroundImage: true, template: true } },
     },
   });
 
@@ -31,7 +31,9 @@ export async function GET(request: NextRequest) {
  *   endDate?, durationSeconds?, textHeavy?, assetId }
  * dynamic_template (built-in WordPress Events Carousel — PRD §3.4/§6.8):
  *   { name, categoryId, type: "dynamic_template", dataSourceId,
- *     displayMode?, maxItems?, perItemDuration?, listLabel?, startDate?, endDate? }
+ *     displayMode?, maxItems?, perItemDuration?, listLabel?, startDate?, endDate?,
+ *     backgroundImageAssetId?, divBackgroundColor?, divBackgroundOpacity?,
+ *     titleColor?, bodyColor?, metaColor?, templateId? }
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -50,6 +52,13 @@ export async function POST(request: NextRequest) {
     maxItems,
     perItemDuration,
     listLabel,
+    backgroundImageAssetId,
+    divBackgroundColor,
+    divBackgroundOpacity,
+    titleColor,
+    bodyColor,
+    metaColor,
+    templateId,
   } = body;
 
   if (!name || !categoryId || !type) {
@@ -102,12 +111,18 @@ export async function POST(request: NextRequest) {
       } else if (type === "dynamic_template") {
         await tx.insert(schema.dynamicBlocks).values({
           blockId: block.id,
-          templateId: null,
+          templateId: templateId || null,
           dataSourceId,
           displayMode: displayMode ?? "carousel",
           maxItems: maxItems ?? 20,
           perItemDuration: perItemDuration ?? 10,
           listLabel: listLabel || null,
+          backgroundImageAssetId: backgroundImageAssetId || null,
+          divBackgroundColor: divBackgroundColor || "#000000",
+          divBackgroundOpacity: divBackgroundOpacity ?? 60,
+          titleColor: titleColor || "#ffffff",
+          bodyColor: bodyColor || "#ffffff",
+          metaColor: metaColor || "#ffffff",
         });
       }
 
@@ -127,7 +142,7 @@ export async function POST(request: NextRequest) {
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
-      dynamic: { with: { dataSource: true } },
+      dynamic: { with: { dataSource: true, backgroundImage: true, template: true } },
     },
   });
 

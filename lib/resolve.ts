@@ -8,7 +8,9 @@ import {
   bulletinBoardImageUrl,
   type WpBulletinBoardItem,
 } from "./wordpress";
+import { fetchFeaturedReaders, type WpFeaturedReaderEntry } from "./wordpress";
 import { generateQrDataUrl } from "./qr";
+import { isLayoutId, type ElementValue, type LayoutId, type TemplateRegions } from "./templates";
 
 export type FormattedEvent = {
   id: number;
@@ -17,7 +19,16 @@ export type FormattedEvent = {
   weekday: string;
   date: string;
   timeRange: string;
+  // The event's own WordPress featured image, shown as a banner above the
+  // text/QR row (distinct from the block-level background image).
   imageUrl: string | null;
+  // QR linking to the event's own page on WordPress, when it has one.
+  qrCodeDataUrl: string | null;
+  // Same data, reshaped into the named/typed elements the drag-and-drop
+  // template builder (lib/templates.ts) offers for wordpress_events. Always
+  // computed (cheap) so a block can be switched to a custom template
+  // without re-fetching.
+  elements: Record<string, ElementValue>;
 };
 
 export type FormattedBulletinItem = {
@@ -26,6 +37,40 @@ export type FormattedBulletinItem = {
   body: string;
   imageUrl: string | null;
   qrCodeDataUrl: string | null;
+  elements: Record<string, ElementValue>;
+};
+
+export type FormattedFeaturedReader = {
+  id: number;
+  readerName: string;
+  readerPhotoUrl: string | null;
+  bookTitle: string;
+  bookAuthor: string | null;
+  bookCoverUrl: string | null;
+  blurbHtml: string;
+  qrCodeDataUrl: string | null;
+  elements: Record<string, ElementValue>;
+};
+
+// A block's chosen drag-and-drop layout (lib/templates.ts), resolved and
+// ready for the player's TemplateSlide renderer. Only applies to carousel
+// mode — list mode keeps the built-in compact multi-item renderer.
+export type ResolvedTemplate = {
+  layout: LayoutId;
+  regions: TemplateRegions;
+};
+
+// Shared "built-in renderer" panel settings for a WordPress-sourced dynamic
+// block (Events or Bulletin Board) — set once per block. See DynamicPanel
+// in app/player. metaColor is only used by the Events renderer's
+// weekday/date/time line.
+export type DynamicPanelStyle = {
+  backgroundImageUrl: string | null;
+  divBackgroundColor: string;
+  divBackgroundOpacity: number;
+  titleColor: string;
+  bodyColor: string;
+  metaColor: string;
 };
 
 export type ResolvedItem = {
@@ -33,7 +78,7 @@ export type ResolvedItem = {
   blockId: string;
   name: string;
   category: { id: string; name: string; color: string };
-  type: "static_image" | "video" | "wordpress_events" | "bulletin_board";
+  type: "static_image" | "video" | "wordpress_events" | "bulletin_board" | "featured_readers";
   fitMode: string;
   durationSeconds: number;
   // Rendering payload — shape depends on block type.
@@ -44,10 +89,13 @@ export type ResolvedItem = {
   // `events` before advancing to the next item in the sequence. In "list"
   // mode, `durationSeconds` is how long the whole list is shown before
   // advancing (like a static block).
-  wordpressEvents?: { mode: "carousel" | "list"; listLabel: string | null; events: FormattedEvent[] };
+  wordpressEvents?: { mode: "carousel" | "list"; listLabel: string | null; events: FormattedEvent[]; template: ResolvedTemplate | null } & DynamicPanelStyle;
   // For bulletin_board: same carousel/list semantics as wordpressEvents
   // above, but over Community Bulletin Board postings.
-  bulletinBoard?: { mode: "carousel" | "list"; listLabel: string | null; items: FormattedBulletinItem[] };
+  bulletinBoard?: { mode: "carousel" | "list"; listLabel: string | null; items: FormattedBulletinItem[]; template: ResolvedTemplate | null } & DynamicPanelStyle;
+  // For featured_readers: same carousel/list semantics again, over this
+  // month's (or a pinned month's) Feature Period recommendations.
+  featuredReaders?: { mode: "carousel" | "list"; listLabel: string | null; readers: FormattedFeaturedReader[]; template: ResolvedTemplate | null } & DynamicPanelStyle;
 };
 
 // Common named HTML entities WordPress content actually uses. Anything else
@@ -96,33 +144,114 @@ function truncate(text: string, maxLength: number): string {
   return `${cut.slice(0, lastSpace > 0 ? lastSpace : maxLength)}…`;
 }
 
-function formatEvent(event: WpEvent): FormattedEvent {
+// Rendering raw WordPress HTML (content_html elements) via
+// dangerouslySetInnerHTML is only safe because it's Brian's own site's
+// trusted content (and Bulletin Board postings are already gated on
+// `approved`) — strip <script>/<style> tags as a defensive minimum anyway.
+function sanitizeHtmlFragment(html: string): string {
+  return html.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
+}
+
+async function formatEvent(event: WpEvent): Promise<FormattedEvent> {
   const { weekday, date, timeRange } = formatEventWhen(event);
   // The Events Calendar leaves `excerpt` empty unless the organizer sets a
   // manual excerpt — most events on this site don't, so fall back to the
   // (much longer, HTML) description, stripped and trimmed to a display length.
   const excerptSource = event.excerpt && event.excerpt.trim() ? event.excerpt : event.description ?? "";
+  const eventUrl = event.url?.trim();
+  const title = decodeEntities(event.title);
+  const imageUrl = bestEventImageUrl(event);
+  const qrCodeDataUrl = eventUrl ? await generateQrDataUrl(eventUrl) : null;
+  const dateTime = `${weekday}, ${date} · ${timeRange}`;
+
   return {
     id: event.id,
     // Titles come from WordPress as encoded HTML too (e.g. "Books &amp; Bites").
-    title: decodeEntities(event.title),
+    title,
     excerpt: truncate(stripHtml(excerptSource), 280),
     weekday,
     date,
     timeRange,
-    imageUrl: bestEventImageUrl(event),
+    imageUrl,
+    qrCodeDataUrl,
+    elements: {
+      featured_image: { type: "image", value: imageUrl },
+      title: { type: "text", value: title },
+      date_time: { type: "text", value: dateTime },
+      excerpt: { type: "text", value: truncate(stripHtml(excerptSource), 280) },
+      content_html: { type: "html", value: sanitizeHtmlFragment(excerptSource) },
+      qr_code: { type: "qr", value: qrCodeDataUrl },
+    },
   };
 }
 
 async function formatBulletinItem(item: WpBulletinBoardItem): Promise<FormattedBulletinItem> {
   const website = item.website?.trim();
+  const orgName = decodeEntities(stripHtml(item.title?.rendered ?? ""));
+  const imageUrl = bulletinBoardImageUrl(item);
+  const qrCodeDataUrl = website ? await generateQrDataUrl(website) : null;
+  const organization = item.organization?.trim() ? decodeEntities(item.organization.trim()) : null;
+
   return {
     id: item.id,
-    orgName: decodeEntities(stripHtml(item.title?.rendered ?? "")),
+    orgName,
     body: truncate(stripHtml(item.content?.rendered ?? ""), 600),
-    imageUrl: bulletinBoardImageUrl(item),
-    qrCodeDataUrl: website ? await generateQrDataUrl(website) : null,
+    imageUrl,
+    qrCodeDataUrl,
+    elements: {
+      featured_image: { type: "image", value: imageUrl },
+      title: { type: "text", value: orgName },
+      organization: { type: "text", value: organization },
+      content_html: { type: "html", value: sanitizeHtmlFragment(item.content?.rendered ?? "") },
+      qr_code: { type: "qr", value: qrCodeDataUrl },
+    },
   };
+}
+
+async function formatFeaturedReader(entry: WpFeaturedReaderEntry): Promise<FormattedFeaturedReader> {
+  const readerName = decodeEntities(entry.reader?.name ?? "");
+  const bookTitle = decodeEntities(entry.book?.title ?? "");
+  const bookAuthor = entry.book?.author?.trim() ? decodeEntities(entry.book.author.trim()) : null;
+  const productUrl = entry.book?.product_url?.trim();
+  const qrCodeDataUrl = productUrl ? await generateQrDataUrl(productUrl) : null;
+  const blurbHtml = sanitizeHtmlFragment(entry.blurb ?? "");
+
+  return {
+    id: entry.id,
+    readerName,
+    readerPhotoUrl: entry.reader?.photo_url ?? null,
+    bookTitle,
+    bookAuthor,
+    bookCoverUrl: entry.book?.cover_url ?? null,
+    blurbHtml,
+    qrCodeDataUrl,
+    elements: {
+      book_cover: { type: "image", value: entry.book?.cover_url ?? null },
+      book_title: { type: "text", value: bookTitle },
+      book_author: { type: "text", value: bookAuthor },
+      reader_name: { type: "text", value: readerName },
+      reader_photo: { type: "image", value: entry.reader?.photo_url ?? null },
+      blurb_html: { type: "html", value: blurbHtml },
+      qr_code: { type: "qr", value: qrCodeDataUrl },
+    },
+  };
+}
+
+/** Parses a dynamic block's assigned template (if any) into the shape the
+ * player renders. Falls back to null (built-in renderer) on any malformed
+ * data rather than breaking the block's whole render. */
+function resolveTemplate(
+  dynamicTemplate: { layout: string; regions: string } | null | undefined
+): ResolvedTemplate | null {
+  if (!dynamicTemplate) return null;
+  if (!isLayoutId(dynamicTemplate.layout)) return null;
+  try {
+    const regions = JSON.parse(dynamicTemplate.regions) as TemplateRegions;
+    if (!regions || typeof regions !== "object") return null;
+    return { layout: dynamicTemplate.layout, regions };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -145,7 +274,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
               category: true,
               staticImage: { with: { imageAsset: true } },
               video: { with: { videoAsset: true } },
-              dynamic: { with: { dataSource: true } },
+              dynamic: { with: { dataSource: true, backgroundImage: true, template: true } },
             },
           },
         },
@@ -197,7 +326,7 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
         if (!baseUrl) continue;
 
         const rawEvents = await fetchWordPressEvents(baseUrl, block.dynamic.maxItems);
-        const events = rawEvents.slice(0, block.dynamic.maxItems).map(formatEvent);
+        const events = await Promise.all(rawEvents.slice(0, block.dynamic.maxItems).map(formatEvent));
         if (events.length === 0) continue;
 
         const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
@@ -209,7 +338,18 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           type: "wordpress_events",
           fitMode: block.fitMode,
           durationSeconds: block.dynamic.perItemDuration,
-          wordpressEvents: { mode, listLabel: block.dynamic.listLabel, events },
+          wordpressEvents: {
+            mode,
+            listLabel: block.dynamic.listLabel,
+            events,
+            template: resolveTemplate(block.dynamic.template),
+            backgroundImageUrl: block.dynamic.backgroundImage?.filePath ?? null,
+            divBackgroundColor: block.dynamic.divBackgroundColor,
+            divBackgroundOpacity: block.dynamic.divBackgroundOpacity,
+            titleColor: block.dynamic.titleColor,
+            bodyColor: block.dynamic.bodyColor,
+            metaColor: block.dynamic.metaColor,
+          },
         });
       } catch {
         // Data source unreachable — skip this block for this cycle rather
@@ -249,7 +389,67 @@ export async function resolveSequence(sequenceId: string): Promise<ResolvedItem[
           type: "bulletin_board",
           fitMode: block.fitMode,
           durationSeconds: block.dynamic.perItemDuration,
-          bulletinBoard: { mode, listLabel: block.dynamic.listLabel, items: formatted },
+          bulletinBoard: {
+            mode,
+            listLabel: block.dynamic.listLabel,
+            items: formatted,
+            template: resolveTemplate(block.dynamic.template),
+            backgroundImageUrl: block.dynamic.backgroundImage?.filePath ?? null,
+            divBackgroundColor: block.dynamic.divBackgroundColor,
+            divBackgroundOpacity: block.dynamic.divBackgroundOpacity,
+            titleColor: block.dynamic.titleColor,
+            bodyColor: block.dynamic.bodyColor,
+            metaColor: block.dynamic.metaColor,
+          },
+        });
+      } catch {
+        continue;
+      }
+    } else if (
+      block.type === "dynamic_template" &&
+      block.dynamic &&
+      block.dynamic.dataSource.type === "wordpress_featured_readers"
+    ) {
+      try {
+        let baseUrl: string | undefined;
+        try {
+          baseUrl = JSON.parse(block.dynamic.dataSource.config)?.base_url;
+        } catch {
+          // fall through to env default below
+        }
+        baseUrl = baseUrl || process.env.WORDPRESS_BASE_URL;
+        if (!baseUrl) continue;
+
+        // Always "current" — per-block period pinning isn't offered (a
+        // Featured Readers block just always shows whatever's tagged with
+        // the current Feature Period, resolved server-side by WordPress).
+        const rawEntries = await fetchFeaturedReaders(baseUrl, "current");
+        const entries = rawEntries.slice(0, block.dynamic.maxItems);
+        if (entries.length === 0) continue;
+
+        const readers = await Promise.all(entries.map(formatFeaturedReader));
+
+        const mode = block.dynamic.displayMode === "list" ? "list" : "carousel";
+        items.push({
+          sequenceBlockId: sb.id,
+          blockId: block.id,
+          name: block.name,
+          category: block.category,
+          type: "featured_readers",
+          fitMode: block.fitMode,
+          durationSeconds: block.dynamic.perItemDuration,
+          featuredReaders: {
+            mode,
+            listLabel: block.dynamic.listLabel,
+            readers,
+            template: resolveTemplate(block.dynamic.template),
+            backgroundImageUrl: block.dynamic.backgroundImage?.filePath ?? null,
+            divBackgroundColor: block.dynamic.divBackgroundColor,
+            divBackgroundOpacity: block.dynamic.divBackgroundOpacity,
+            titleColor: block.dynamic.titleColor,
+            bodyColor: block.dynamic.bodyColor,
+            metaColor: block.dynamic.metaColor,
+          },
         });
       } catch {
         continue;

@@ -36,9 +36,9 @@ export default function DataSourcesPage() {
 
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [sourceType, setSourceType] = useState<"wordpress_events" | "wordpress_bulletin_board">(
-    "wordpress_events"
-  );
+  const [sourceType, setSourceType] = useState<
+    "wordpress_events" | "wordpress_bulletin_board" | "wordpress_featured_readers"
+  >("wordpress_events");
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
@@ -100,15 +100,18 @@ export default function DataSourcesPage() {
         <h1 className="text-2xl font-semibold">Data Sources</h1>
         <p className="text-neutral-600 text-sm mt-1">
           Where synced content comes from (PRD §6): WordPress Events (via The Events Calendar&apos;s
-          REST API, <code className="text-xs">/wp-json/tribe/events/v1/events</code>) or the
+          REST API, <code className="text-xs">/wp-json/tribe/events/v1/events</code>), the
           Community Bulletin Board (a Pods custom post type,{" "}
-          <code className="text-xs">/wp-json/wp/v2/bulletin_board_item</code>).
+          <code className="text-xs">/wp-json/wp/v2/bulletin_board_item</code>), or Featured Readers
+          (a small custom endpoint joining reader + recommendation + WooCommerce product,{" "}
+          <code className="text-xs">/wp-json/signage/v1/featured-readers</code> — see{" "}
+          <code className="text-xs">docs/featured-readers-endpoint.php</code>).
         </p>
       </div>
 
       <form onSubmit={submit} className="bg-white border rounded p-4 space-y-3 max-w-lg">
         <h2 className="font-medium">New WordPress Data Source</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setSourceType("wordpress_events")}
@@ -126,6 +129,15 @@ export default function DataSourcesPage() {
             }`}
           >
             Community Bulletin Board
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceType("wordpress_featured_readers")}
+            className={`flex-1 border rounded px-3 py-2 text-sm ${
+              sourceType === "wordpress_featured_readers" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white"
+            }`}
+          >
+            Featured Readers
           </button>
         </div>
         <input

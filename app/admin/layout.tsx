@@ -19,6 +19,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Link href="/admin/data-sources" className="hover:underline">
               Data Sources
             </Link>
+            <Link href="/admin/templates" className="hover:underline">
+              Templates
+            </Link>
           </nav>
           <a href="/player" target="_blank" className="ml-auto text-sm text-indigo-600 hover:underline">
             Open Player ↗

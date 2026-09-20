@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type Category = { id: string; name: string; color: string; defaultDurationSeconds: number };
 type DataSource = { id: string; name: string; type: string };
+type LayoutTemplate = { id: string; name: string; dataSourceType: string };
 type DynamicInfo = {
   dataSourceId: string;
   dataSource: DataSource;
@@ -11,6 +13,14 @@ type DynamicInfo = {
   maxItems: number;
   perItemDuration: number;
   listLabel: string | null;
+  backgroundImage: { filePath: string } | null;
+  divBackgroundColor: string;
+  divBackgroundOpacity: number;
+  titleColor: string;
+  bodyColor: string;
+  metaColor: string;
+  templateId: string | null;
+  template: LayoutTemplate | null;
 };
 type Block = {
   id: string;
@@ -25,26 +35,41 @@ type Block = {
   dynamic?: DynamicInfo;
 };
 
-type BlockKind = "upload" | "wordpress_events" | "wordpress_bulletin_board";
+type BlockKind = "upload" | "wordpress_events" | "wordpress_bulletin_board" | "wordpress_featured_readers";
 
 const DYNAMIC_KIND_LABEL: Record<Exclude<BlockKind, "upload">, string> = {
   wordpress_events: "WordPress Events",
   wordpress_bulletin_board: "Community Bulletin Board",
+  wordpress_featured_readers: "Featured Readers",
+};
+
+const DYNAMIC_ITEM_NOUN: Record<Exclude<BlockKind, "upload">, string> = {
+  wordpress_events: "events",
+  wordpress_bulletin_board: "postings",
+  wordpress_featured_readers: "recommendations",
 };
 
 function dynamicBlockSummaryLabel(dataSourceType: string | undefined, displayMode: string | undefined) {
-  const noun = dataSourceType === "wordpress_bulletin_board" ? "Bulletin Board" : "Events";
+  const noun =
+    dataSourceType === "wordpress_bulletin_board"
+      ? "Bulletin Board"
+      : dataSourceType === "wordpress_featured_readers"
+      ? "Featured Readers"
+      : "Events";
   return displayMode === "list" ? `${noun} List` : `${noun} Carousel`;
 }
 
 function dynamicBlockIcon(dataSourceType: string | undefined) {
-  return dataSourceType === "wordpress_bulletin_board" ? "📌" : "🗓️";
+  if (dataSourceType === "wordpress_bulletin_board") return "📌";
+  if (dataSourceType === "wordpress_featured_readers") return "📚";
+  return "🗓️";
 }
 
 export default function BlockLibraryPage() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [templates, setTemplates] = useState<LayoutTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [blockKind, setBlockKind] = useState<BlockKind>("upload");
@@ -62,22 +87,32 @@ export default function BlockLibraryPage() {
   const [dynListLabel, setDynListLabel] = useState("");
   const [dynMaxItems, setDynMaxItems] = useState("10");
   const [dynPerItemDuration, setDynPerItemDuration] = useState("10");
+  const [dynBackgroundFile, setDynBackgroundFile] = useState<File | null>(null);
+  const [dynDivColor, setDynDivColor] = useState("#000000");
+  const [dynDivOpacity, setDynDivOpacity] = useState("60");
+  const [dynTitleColor, setDynTitleColor] = useState("#ffffff");
+  const [dynBodyColor, setDynBodyColor] = useState("#ffffff");
+  const [dynMetaColor, setDynMetaColor] = useState("#ffffff");
+  const [dynTemplateId, setDynTemplateId] = useState("");
 
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
 
   const dataSourcesForKind = (kind: BlockKind) => dataSources.filter((s) => s.type === kind);
+  const templatesForKind = (kind: BlockKind) => templates.filter((t) => t.dataSourceType === kind);
 
   const load = async () => {
-    const [blocksRes, catsRes, sourcesRes] = await Promise.all([
+    const [blocksRes, catsRes, sourcesRes, templatesRes] = await Promise.all([
       fetch("/api/blocks"),
       fetch("/api/categories"),
       fetch("/api/data-sources"),
+      fetch("/api/templates"),
     ]);
     const cats = await catsRes.json();
     const sources: DataSource[] = await sourcesRes.json();
     setBlocks(await blocksRes.json());
     setCategories(cats);
     setDataSources(sources);
+    setTemplates(await templatesRes.json());
     if (!categoryId && cats[0]) setCategoryId(cats[0].id);
     setLoading(false);
   };
@@ -96,8 +131,12 @@ export default function BlockLibraryPage() {
     if (!available.some((s) => s.id === dynDataSourceId)) {
       setDynDataSourceId(available[0]?.id ?? "");
     }
+    const availableTemplates = templatesForKind(blockKind);
+    if (!availableTemplates.some((t) => t.id === dynTemplateId)) {
+      setDynTemplateId("");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockKind, dataSources]);
+  }, [blockKind, dataSources, templates]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +211,18 @@ export default function BlockLibraryPage() {
 
     setSubmitting(true);
     try {
+      let backgroundImageAssetId: string | undefined;
+      if (dynBackgroundFile) {
+        const uploadForm = new FormData();
+        uploadForm.append("file", dynBackgroundFile);
+        const assetRes = await fetch("/api/assets", { method: "POST", body: uploadForm });
+        if (!assetRes.ok) {
+          const body = await assetRes.json().catch(() => ({}));
+          throw new Error(body.error ?? `Background image upload failed (${assetRes.status})`);
+        }
+        backgroundImageAssetId = (await assetRes.json()).id;
+      }
+
       const blockRes = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -185,6 +236,13 @@ export default function BlockLibraryPage() {
           maxItems: Number(dynMaxItems) || 10,
           perItemDuration: Number(dynPerItemDuration) || 10,
           endDate: endDate || null,
+          backgroundImageAssetId,
+          divBackgroundColor: dynDivColor,
+          divBackgroundOpacity: Number(dynDivOpacity) || 0,
+          titleColor: dynTitleColor,
+          bodyColor: dynBodyColor,
+          metaColor: dynMetaColor,
+          templateId: dynTemplateId || null,
         }),
       });
       if (!blockRes.ok) {
@@ -194,6 +252,13 @@ export default function BlockLibraryPage() {
       setName("");
       setEndDate("");
       setDynListLabel("");
+      setDynBackgroundFile(null);
+      setDynDivColor("#000000");
+      setDynDivOpacity("60");
+      setDynTitleColor("#ffffff");
+      setDynBodyColor("#ffffff");
+      setDynTemplateId("");
+      setDynMetaColor("#ffffff");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -241,6 +306,15 @@ export default function BlockLibraryPage() {
             }`}
           >
             Community Bulletin Board
+          </button>
+          <button
+            type="button"
+            onClick={() => setBlockKind("wordpress_featured_readers")}
+            className={`px-3 py-1.5 rounded border ${
+              blockKind === "wordpress_featured_readers" ? "bg-indigo-600 text-white border-indigo-600" : "text-neutral-600"
+            }`}
+          >
+            Featured Readers
           </button>
         </div>
 
@@ -328,7 +402,7 @@ export default function BlockLibraryPage() {
             )}
 
             <label className="block text-sm">
-              Number of {blockKind === "wordpress_bulletin_board" ? "postings" : "events"} to display
+              Number of {DYNAMIC_ITEM_NOUN[blockKind]} to display
               <input
                 type="number"
                 min={1}
@@ -348,6 +422,99 @@ export default function BlockLibraryPage() {
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               />
             </label>
+
+            <div className="border-t pt-3 space-y-2">
+              <label className="block text-sm">
+                Layout template
+                <select
+                  value={dynTemplateId}
+                  onChange={(e) => setDynTemplateId(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm w-full mt-1"
+                >
+                  <option value="">Built-in renderer (default)</option>
+                  {templatesForKind(blockKind).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs text-neutral-500">
+                Only applies in Carousel mode.{" "}
+                <Link href="/admin/templates" className="text-indigo-600 hover:underline">
+                  Manage templates
+                </Link>
+                .
+              </p>
+            </div>
+
+            <div className="border-t pt-3 space-y-3">
+              <p className="text-xs text-neutral-500">
+                Player background &amp; text panel — shown behind every item this block pulls in. No need for a
+                WordPress featured image; a QR code is shown instead.
+              </p>
+              <label className="block text-sm">
+                Background image (16:9 — scales to cover the screen)
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setDynBackgroundFile(e.target.files?.[0] ?? null)}
+                  className="text-sm w-full mt-1"
+                />
+              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  Panel color
+                  <input
+                    type="color"
+                    value={dynDivColor}
+                    onChange={(e) => setDynDivColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm flex-1">
+                  Opacity
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={dynDivOpacity}
+                    onChange={(e) => setDynDivOpacity(e.target.value)}
+                    className="flex-1"
+                  />
+                  <span className="text-xs text-neutral-500 w-10 text-right">{dynDivOpacity}%</span>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  Title color
+                  <input
+                    type="color"
+                    value={dynTitleColor}
+                    onChange={(e) => setDynTitleColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  Excerpt color
+                  <input
+                    type="color"
+                    value={dynBodyColor}
+                    onChange={(e) => setDynBodyColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  Date/time color
+                  <input
+                    type="color"
+                    value={dynMetaColor}
+                    onChange={(e) => setDynMetaColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+              </div>
+            </div>
           </>
         )}
 
@@ -436,6 +603,9 @@ export default function BlockLibraryPage() {
           dataSources={dataSourcesForKind(
             (editingBlock.dynamic?.dataSource?.type as BlockKind | undefined) ?? "wordpress_events"
           )}
+          templates={templatesForKind(
+            (editingBlock.dynamic?.dataSource?.type as BlockKind | undefined) ?? "wordpress_events"
+          )}
           onCategoryCreated={(c) => setCategories((prev) => [...prev, c])}
           onClose={() => setEditingBlock(null)}
           onSaved={async () => {
@@ -456,6 +626,7 @@ function EditBlockModal({
   block,
   categories,
   dataSources,
+  templates,
   onCategoryCreated,
   onClose,
   onSaved,
@@ -464,6 +635,7 @@ function EditBlockModal({
   block: Block;
   categories: Category[];
   dataSources: DataSource[];
+  templates: LayoutTemplate[];
   onCategoryCreated: (category: Category) => void;
   onClose: () => void;
   onSaved: () => void;
@@ -482,12 +654,27 @@ function EditBlockModal({
   const [dynListLabel, setDynListLabel] = useState(block.dynamic?.listLabel ?? "");
   const [dynMaxItems, setDynMaxItems] = useState(String(block.dynamic?.maxItems ?? 10));
   const [dynPerItemDuration, setDynPerItemDuration] = useState(String(block.dynamic?.perItemDuration ?? 10));
+  const [dynBackgroundFile, setDynBackgroundFile] = useState<File | null>(null);
+  const [clearBackground, setClearBackground] = useState(false);
+  const [dynDivColor, setDynDivColor] = useState(block.dynamic?.divBackgroundColor ?? "#000000");
+  const [dynDivOpacity, setDynDivOpacity] = useState(String(block.dynamic?.divBackgroundOpacity ?? 60));
+  const [dynTitleColor, setDynTitleColor] = useState(block.dynamic?.titleColor ?? "#ffffff");
+  const [dynBodyColor, setDynBodyColor] = useState(block.dynamic?.bodyColor ?? "#ffffff");
+  const [dynMetaColor, setDynMetaColor] = useState(block.dynamic?.metaColor ?? "#ffffff");
+  const [dynTemplateId, setDynTemplateId] = useState(block.dynamic?.templateId ?? "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState("");
 
   const isBulletinBoard = block.dynamic?.dataSource?.type === "wordpress_bulletin_board";
+  const isFeaturedReaders = block.dynamic?.dataSource?.type === "wordpress_featured_readers";
+  const dynDataSourceLabel = isBulletinBoard
+    ? "Community bulletin board"
+    : isFeaturedReaders
+    ? "Featured Readers"
+    : "WordPress events";
+  const dynItemNoun = isBulletinBoard ? "postings" : isFeaturedReaders ? "recommendations" : "events";
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -498,6 +685,20 @@ function EditBlockModal({
     }
     setSaving(true);
     try {
+      let backgroundImageAssetId: string | null | undefined;
+      if (dynBackgroundFile) {
+        const uploadForm = new FormData();
+        uploadForm.append("file", dynBackgroundFile);
+        const assetRes = await fetch("/api/assets", { method: "POST", body: uploadForm });
+        if (!assetRes.ok) {
+          const body = await assetRes.json().catch(() => ({}));
+          throw new Error(body.error ?? `Background image upload failed (${assetRes.status})`);
+        }
+        backgroundImageAssetId = (await assetRes.json()).id;
+      } else if (clearBackground) {
+        backgroundImageAssetId = null;
+      }
+
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -515,6 +716,13 @@ function EditBlockModal({
                 listLabel: dynDisplayMode === "list" ? dynListLabel : null,
                 maxItems: Number(dynMaxItems) || 10,
                 perItemDuration: Number(dynPerItemDuration) || 10,
+                ...(backgroundImageAssetId !== undefined ? { backgroundImageAssetId } : {}),
+                divBackgroundColor: dynDivColor,
+                divBackgroundOpacity: Number(dynDivOpacity) || 0,
+                titleColor: dynTitleColor,
+                bodyColor: dynBodyColor,
+                metaColor: dynMetaColor,
+                templateId: dynTemplateId || null,
               }
             : {}),
         }),
@@ -599,7 +807,7 @@ function EditBlockModal({
         {block.type === "dynamic_template" && (
           <>
             <label className="block text-sm">
-              {isBulletinBoard ? "Community bulletin board" : "WordPress events"} data source
+              {dynDataSourceLabel} data source
               <select
                 value={dynDataSourceId}
                 onChange={(e) => setDynDataSourceId(e.target.value)}
@@ -646,7 +854,7 @@ function EditBlockModal({
             )}
 
             <label className="block text-sm">
-              Number of {isBulletinBoard ? "postings" : "events"} to display
+              Number of {dynItemNoun} to display
               <input
                 type="number"
                 min={1}
@@ -666,6 +874,118 @@ function EditBlockModal({
                 className="border rounded px-3 py-2 text-sm w-full mt-1"
               />
             </label>
+
+            <div className="border-t pt-3 space-y-2">
+              <label className="block text-sm">
+                Layout template
+                <select
+                  value={dynTemplateId}
+                  onChange={(e) => setDynTemplateId(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm w-full mt-1"
+                >
+                  <option value="">Built-in renderer (default)</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs text-neutral-500">
+                Only applies in Carousel mode.{" "}
+                <Link href="/admin/templates" className="text-indigo-600 hover:underline">
+                  Manage templates
+                </Link>
+                .
+              </p>
+            </div>
+
+            <div className="border-t pt-3 space-y-3">
+              <p className="text-xs text-neutral-500">
+                Player background &amp; text panel — shown behind every item this block pulls in.
+              </p>
+              {block.dynamic?.backgroundImage && !clearBackground && !dynBackgroundFile && (
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={block.dynamic.backgroundImage.filePath}
+                    alt="Current background"
+                    className="w-24 aspect-video object-cover rounded border"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setClearBackground(true)}
+                    className="text-xs text-red-600 hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+              <label className="block text-sm">
+                {block.dynamic?.backgroundImage ? "Replace background image" : "Background image (16:9 — scales to cover the screen)"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    setDynBackgroundFile(e.target.files?.[0] ?? null);
+                    setClearBackground(false);
+                  }}
+                  className="text-sm w-full mt-1"
+                />
+              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  Panel color
+                  <input
+                    type="color"
+                    value={dynDivColor}
+                    onChange={(e) => setDynDivColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm flex-1">
+                  Opacity
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={dynDivOpacity}
+                    onChange={(e) => setDynDivOpacity(e.target.value)}
+                    className="flex-1"
+                  />
+                  <span className="text-xs text-neutral-500 w-10 text-right">{dynDivOpacity}%</span>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  Title color
+                  <input
+                    type="color"
+                    value={dynTitleColor}
+                    onChange={(e) => setDynTitleColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  Excerpt color
+                  <input
+                    type="color"
+                    value={dynBodyColor}
+                    onChange={(e) => setDynBodyColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  Date/time color
+                  <input
+                    type="color"
+                    value={dynMetaColor}
+                    onChange={(e) => setDynMetaColor(e.target.value)}
+                    className="h-8 w-10 border rounded"
+                  />
+                </label>
+              </div>
+            </div>
           </>
         )}
 

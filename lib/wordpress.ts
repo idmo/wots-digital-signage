@@ -124,6 +124,10 @@ export type WpBulletinBoardItem = {
   website?: string;
   approved?: string | number | boolean;
   featured_media?: number;
+  // Pods custom field, REST-exposed directly on the post object under its
+  // field name. Adjust this key if the live site exposes it differently
+  // (e.g. under `meta`) once the template builder is tested against it.
+  organization?: string;
   _embedded?: {
     "wp:featuredmedia"?: Array<{ source_url?: string }>;
   };
@@ -162,4 +166,49 @@ export function isBulletinBoardItemEligible(item: WpBulletinBoardItem, now: Date
     if (!Number.isNaN(end.getTime()) && now > end) return false;
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Featured Readers — a small custom REST endpoint on the WordPress side
+// (PRD §6.3/§6.4) that joins three things server-side, in PHP, so the
+// signage backend gets one clean array back instead of stitching Pods
+// relationships + a WooCommerce product lookup together itself:
+//   signage_reader (Pods CPT) <- reader relationship - signage_recommendation
+//   (Pods CPT) - book relationship -> WooCommerce `product`
+// tagged with the signage_feature_period taxonomy (terms slugged "YYYY-MM").
+// See docs/featured-readers-endpoint.php for the WordPress-side code this
+// client expects, and its header comment for the exact field/slug
+// assumptions — adjust either side if Brian's real Pods setup differs.
+// ---------------------------------------------------------------------------
+
+export type WpFeaturedReaderEntry = {
+  id: number; // the signage_recommendation post ID
+  reader: {
+    name: string;
+    photo_url: string | null;
+  };
+  book: {
+    title: string;
+    author: string | null;
+    cover_url: string | null;
+    product_url: string | null;
+  };
+  blurb: string; // rich-text HTML from the recommendation's blurb field
+};
+
+/**
+ * `period` is "current" (the default — resolved server-side against
+ * WordPress's own clock/timezone so the signage backend never has to
+ * compute "this month" itself) or a pinned `YYYY-MM` Feature Period slug.
+ */
+export async function fetchFeaturedReaders(
+  baseUrl: string,
+  period: string = "current"
+): Promise<WpFeaturedReaderEntry[]> {
+  const url = new URL("/wp-json/signage/v1/featured-readers", baseUrl);
+  url.searchParams.set("period", period);
+  const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`WordPress featured readers fetch failed: ${res.status} ${res.statusText}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }

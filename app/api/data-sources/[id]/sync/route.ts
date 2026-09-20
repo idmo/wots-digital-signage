@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
-import { fetchWordPressEvents, fetchBulletinBoardItems } from "@/lib/wordpress";
+import { fetchWordPressEvents, fetchBulletinBoardItems, fetchFeaturedReaders } from "@/lib/wordpress";
 
 /**
  * Manual/scheduled sync trigger (PRD §11.3). The worker service calls
@@ -34,6 +34,12 @@ export async function POST(_request: NextRequest, ctx: RouteContext<"/api/data-s
       if (!baseUrl) throw new Error("data source config missing base_url");
       const items = await fetchBulletinBoardItems(baseUrl);
       itemsFetched = items.length;
+    } else if (source.type === "wordpress_featured_readers") {
+      const config = JSON.parse(source.config || "{}");
+      const baseUrl = config.base_url || process.env.WORDPRESS_BASE_URL;
+      if (!baseUrl) throw new Error("data source config missing base_url");
+      const readers = await fetchFeaturedReaders(baseUrl, "current");
+      itemsFetched = readers.length;
     } else {
       throw new Error(`sync not yet implemented for type ${source.type}`);
     }

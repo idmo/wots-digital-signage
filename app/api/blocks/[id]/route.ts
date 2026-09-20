@@ -10,7 +10,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/blocks/
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
-      dynamic: { with: { dataSource: true } },
+      dynamic: { with: { dataSource: true, backgroundImage: true, template: true } },
     },
   });
   if (!block) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -34,6 +34,13 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
     maxItems,
     perItemDuration,
     listLabel,
+    backgroundImageAssetId,
+    divBackgroundColor,
+    divBackgroundOpacity,
+    titleColor,
+    bodyColor,
+    metaColor,
+    templateId,
   } = body;
 
   const existing = await db.query.blocks.findFirst({ where: eq(schema.blocks.id, id) });
@@ -61,11 +68,20 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
     await db
       .update(schema.dynamicBlocks)
       .set({
+        ...(templateId !== undefined ? { templateId: templateId || null } : {}),
         ...(dataSourceId !== undefined ? { dataSourceId } : {}),
         ...(displayMode !== undefined ? { displayMode } : {}),
         ...(maxItems !== undefined ? { maxItems: Number(maxItems) } : {}),
         ...(perItemDuration !== undefined ? { perItemDuration: Number(perItemDuration) } : {}),
         ...(listLabel !== undefined ? { listLabel: listLabel || null } : {}),
+        ...(backgroundImageAssetId !== undefined
+          ? { backgroundImageAssetId: backgroundImageAssetId || null }
+          : {}),
+        ...(divBackgroundColor !== undefined ? { divBackgroundColor: divBackgroundColor || "#000000" } : {}),
+        ...(divBackgroundOpacity !== undefined ? { divBackgroundOpacity: Number(divBackgroundOpacity) } : {}),
+        ...(titleColor !== undefined ? { titleColor: titleColor || "#ffffff" } : {}),
+        ...(bodyColor !== undefined ? { bodyColor: bodyColor || "#ffffff" } : {}),
+        ...(metaColor !== undefined ? { metaColor: metaColor || "#ffffff" } : {}),
       })
       .where(eq(schema.dynamicBlocks.blockId, id));
   }
@@ -76,7 +92,7 @@ export async function PUT(request: NextRequest, ctx: RouteContext<"/api/blocks/[
       category: true,
       staticImage: { with: { imageAsset: true } },
       video: { with: { videoAsset: true } },
-      dynamic: { with: { dataSource: true } },
+      dynamic: { with: { dataSource: true, backgroundImage: true, template: true } },
     },
   });
 

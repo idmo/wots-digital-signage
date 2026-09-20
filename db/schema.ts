@@ -31,14 +31,23 @@ export const categories = pgTable("categories", {
   ...timestamps,
 });
 
+// A reusable drag-and-drop layout (see lib/templates.ts) for a
+// dynamic_template block's built-in WordPress renderer — pick a layout
+// (stack | split_left | split_right), then drag content elements (title,
+// featured image, a custom field, ...) into its regions. Scoped to one
+// data source type, since the elements available depend on which
+// WordPress REST endpoint the block pulls from.
 export const templates = pgTable("templates", {
   id: id(),
   name: text("name").notNull(),
-  categoryId: text("category_id"),
-  // JSON string: [{ name, type: text|image|qr|date }]
-  schema: text("schema").notNull(),
-  htmlTemplate: text("html_template").notNull(),
-  css: text("css").notNull().default(""),
+  // wordpress_events | wordpress_bulletin_board — which content-element set
+  // (lib/templates.ts CONTENT_ELEMENTS) this template was built from.
+  dataSourceType: text("data_source_type").notNull(),
+  // stack | split_left | split_right (lib/templates.ts TEMPLATE_LAYOUTS)
+  layout: text("layout").notNull().default("stack"),
+  // JSON string: Record<regionId, string[]> — ordered content-element keys
+  // placed in each region.
+  regions: text("regions").notNull().default("{}"),
   ...timestamps,
 });
 
@@ -118,6 +127,21 @@ export const dynamicBlocks = pgTable("dynamic_blocks", {
   maxItems: integer("max_items").notNull().default(20),
   listLabel: text("list_label"),
   fieldOverrides: text("field_overrides"),
+  // Built-in WordPress renderers (Events, Bulletin Board): a full-bleed
+  // background image behind a padded, tinted text panel, plus each item's
+  // own WordPress featured image shown as a banner above the text/QR row.
+  // Set once per block, shared by every item it cycles through.
+  backgroundImageAssetId: text("background_image_asset_id").references(() => assets.id),
+  // Hex color for the text panel, e.g. "#000000".
+  divBackgroundColor: text("div_background_color").notNull().default("#000000"),
+  // 0-100 (%) opacity applied to divBackgroundColor.
+  divBackgroundOpacity: integer("div_background_opacity").notNull().default(60),
+  // Per-element text hex colors within the panel. metaColor is only used by
+  // the Events renderer's weekday/date/time line — harmless default for
+  // Bulletin Board, which has no on-screen date line.
+  titleColor: text("title_color").notNull().default("#ffffff"),
+  bodyColor: text("body_color").notNull().default("#ffffff"),
+  metaColor: text("meta_color").notNull().default("#ffffff"),
 });
 
 export const sequences = pgTable("sequences", {
@@ -201,11 +225,7 @@ export const categoriesRelations = relations(categories, ({ one, many }) => ({
   blocks: many(blocks),
 }));
 
-export const templatesRelations = relations(templates, ({ one, many }) => ({
-  category: one(categories, {
-    fields: [templates.categoryId],
-    references: [categories.id],
-  }),
+export const templatesRelations = relations(templates, ({ many }) => ({
   dynamicBlocks: many(dynamicBlocks),
 }));
 
@@ -248,6 +268,7 @@ export const dynamicBlocksRelations = relations(dynamicBlocks, ({ one }) => ({
   block: one(blocks, { fields: [dynamicBlocks.blockId], references: [blocks.id] }),
   template: one(templates, { fields: [dynamicBlocks.templateId], references: [templates.id] }),
   dataSource: one(dataSources, { fields: [dynamicBlocks.dataSourceId], references: [dataSources.id] }),
+  backgroundImage: one(assets, { fields: [dynamicBlocks.backgroundImageAssetId], references: [assets.id] }),
 }));
 
 export const sequencesRelations = relations(sequences, ({ many }) => ({
@@ -262,6 +283,7 @@ export const sequenceBlocksRelations = relations(sequenceBlocks, ({ one }) => ({
 export const assetsRelations = relations(assets, ({ many }) => ({
   staticImageBlocks: many(staticImageBlocks),
   videoBlocks: many(videoBlocks),
+  dynamicBlockBackgrounds: many(dynamicBlocks),
 }));
 
 export const syncLogsRelations = relations(syncLogs, ({ one }) => ({
