@@ -41,6 +41,15 @@ export default function DataSourcesPage() {
   >("wordpress_events");
   const [submitting, setSubmitting] = useState(false);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editBaseUrl, setEditBaseUrl] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
+
   const load = async () => {
     const res = await fetch("/api/data-sources");
     setSources(await res.json());
@@ -91,6 +100,64 @@ export default function DataSourcesPage() {
       await load();
     } finally {
       setSyncingId(null);
+    }
+  };
+
+  const startEditing = (s: DataSource) => {
+    setEditingId(s.id);
+    setEditName(s.name);
+    setEditBaseUrl(parseBaseUrl(s.config) ?? "");
+    setEditError("");
+    setConfirmingDeleteId(null);
+    setDeleteError(null);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditError("");
+  };
+
+  const saveEdit = async (id: string) => {
+    setEditError("");
+    if (!editName.trim()) {
+      setEditError("Name can't be empty.");
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/data-sources/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName, baseUrl: editBaseUrl }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Couldn't save changes (${res.status})`);
+      }
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const doDelete = async (id: string) => {
+    setDeletingId(id);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/data-sources/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Couldn't delete data source (${res.status})`);
+      }
+      setConfirmingDeleteId(null);
+      await load();
+    } catch (err) {
+      setDeleteError({ id, message: err instanceof Error ? err.message : "Something went wrong." });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -176,19 +243,96 @@ export default function DataSourcesPage() {
           {sources.map((s) => {
             const latest = s.syncLogs?.[0];
             const url = parseBaseUrl(s.config);
+            const isEditing = editingId === s.id;
+
+            if (isEditing) {
+              return (
+                <div key={s.id} className="p-4 space-y-3 bg-indigo-50/40">
+                  <div className="text-xs text-neutral-400 font-normal">({s.type})</div>
+                  <label className="block text-sm">
+                    Internal label
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="border rounded px-3 py-2 text-sm w-full mt-1"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    WordPress site base URL (blank falls back to the{" "}
+                    <code className="text-xs">WORDPRESS_BASE_URL</code> env var)
+                    <input
+                      value={editBaseUrl}
+                      onChange={(e) => setEditBaseUrl(e.target.value)}
+                      placeholder="https://www.wordonthestreetbooks.com"
+                      className="border rounded px-3 py-2 text-sm w-full mt-1"
+                    />
+                  </label>
+                  {editError && <p className="text-sm text-red-600">{editError}</p>}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => saveEdit(s.id)}
+                      disabled={editSaving}
+                      className="bg-indigo-600 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+                    >
+                      {editSaving ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={cancelEditing} className="text-sm text-neutral-600 hover:underline">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div key={s.id} className="p-4 space-y-1">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div className="font-medium">
                     {s.name} <span className="text-xs text-neutral-400 font-normal">({s.type})</span>
                   </div>
-                  <button
-                    onClick={() => syncNow(s.id)}
-                    disabled={syncingId === s.id}
-                    className="text-sm text-indigo-600 hover:underline disabled:opacity-50"
-                  >
-                    {syncingId === s.id ? "Syncing…" : "Sync Now"}
-                  </button>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => syncNow(s.id)}
+                      disabled={syncingId === s.id}
+                      className="text-sm text-indigo-600 hover:underline disabled:opacity-50"
+                    >
+                      {syncingId === s.id ? "Syncing…" : "Sync Now"}
+                    </button>
+                    <button
+                      onClick={() => startEditing(s)}
+                      className="text-sm text-indigo-600 hover:underline"
+                    >
+                      Edit
+                    </button>
+                    {confirmingDeleteId === s.id ? (
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs text-neutral-600">Delete for good?</span>
+                        <button
+                          onClick={() => doDelete(s.id)}
+                          disabled={deletingId === s.id}
+                          className="text-sm text-red-600 font-medium hover:underline disabled:opacity-50"
+                        >
+                          {deletingId === s.id ? "Deleting…" : "Yes, delete"}
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDeleteId(null)}
+                          className="text-sm text-neutral-500 hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setConfirmingDeleteId(s.id);
+                          setDeleteError(null);
+                        }}
+                        className="text-sm text-red-600 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="text-xs text-neutral-500">
                   Pulling from:{" "}
@@ -212,6 +356,9 @@ export default function DataSourcesPage() {
                       ? `${latest.itemsFetched} item(s) fetched`
                       : `failed — ${latest.errorMessage}`}
                   </div>
+                )}
+                {deleteError?.id === s.id && (
+                  <div className="text-xs text-red-600">{deleteError.message}</div>
                 )}
               </div>
             );
